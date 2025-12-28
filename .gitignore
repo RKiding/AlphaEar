@@ -10,6 +10,9 @@ wheels/
 # Virtual environments
 .venv
 .env
+
+# data and output
 data/
 src/tests
-reports
+reports/
+logs/
