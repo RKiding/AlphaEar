@@ -158,7 +158,7 @@ def extract_json(text: str) -> Optional[Any]:
             fix_quotes = re.sub(r":\s*'(.*?)'", r': "\1"', fix_quotes)   # 修复简单值
             obj, end_pos = decoder.raw_decode(fix_quotes)
             return obj
-        except:
+        except (json.JSONDecodeError, TypeError):
             try:
                 # 5. 使用 ast.literal_eval 作为终极回退 (处理 Python 字典格式)
                 import ast
@@ -172,7 +172,9 @@ def extract_json(text: str) -> Optional[Any]:
                         if not stack:
                             content = potential_json[:i+1]
                             return ast.literal_eval(content)
-            except Exception as e:
+            except (ValueError, SyntaxError, MemoryError) as e:
                 logger.warning(f"All JSON extraction attempts failed: {e}")
+            except Exception as e:
+                logger.error(f"Unexpected error during JSON extraction: {e}")
     
     return None

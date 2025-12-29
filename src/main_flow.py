@@ -9,14 +9,12 @@ from dotenv import load_dotenv
 from utils.database_manager import DatabaseManager
 from utils.llm.factory import get_model
 from utils.search_tools import SearchTools
+from utils.json_utils import extract_json
 from agents import TrendAgent, FinAgent, ReportAgent, IntentAgent
 from schema.models import InvestmentSignal, InvestmentReport
 from agno.agent import Agent
 from utils.md_to_html import save_report_as_html
 from prompts.trend_agent import get_news_filter_instructions
-
-os.environ["NO_PROXY"] = "localhost,127.0.0.1,*.hkust-gz.edu.cn"
-
 
 class SignalFluxWorkflow:
     """
@@ -28,9 +26,8 @@ class SignalFluxWorkflow:
     3. ReportAgent -> 生成研报
     """
     
-    def __init__(self, db_path: str = "data/signalflux.db"):
+    def __init__(self, db_path: str = "data/signal_flux.db"):
         load_dotenv()
-        
         # 初始化数据库
         self.db = DatabaseManager(db_path)
         
@@ -75,7 +72,6 @@ class SignalFluxWorkflow:
             content = response.content
             
             # 提取 JSON
-            from utils.json_utils import extract_json
             result = extract_json(content)
             if not result:
                 logger.warning(f"Failed to parse LLM filter response: {content}")

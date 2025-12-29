@@ -2,6 +2,7 @@ import os
 from typing import Dict, List, Union, Optional
 import json
 from loguru import logger
+from agno.agent import Agent
 from utils.llm.factory import get_model
 from utils.database_manager import DatabaseManager
 
@@ -48,6 +49,9 @@ class SentimentTools:
         if self.mode in ["bert", "auto"]:
             try:
                 from transformers import pipeline, AutoTokenizer, AutoModelForSequenceClassification
+                from transformers.utils import logging as transformers_logging
+                transformers_logging.set_verbosity_error() # 减少冗余日志
+                
                 bert_model = os.getenv("BERT_SENTIMENT_MODEL", "uer/roberta-base-finetuned-chinanews-chinese")
                 
                 # 优先使用本地缓存
@@ -62,7 +66,7 @@ class SentimentTools:
                         device=-1
                     )
                     logger.info(f"✅ BERT pipeline loaded from local cache: {bert_model}")
-                except Exception:
+                except (OSError, ValueError, ImportError):
                     # 本地没有，则从网络下载
                     logger.info(f"📡 Downloading BERT model: {bert_model}...")
                     tokenizer = AutoTokenizer.from_pretrained(bert_model)
@@ -75,6 +79,8 @@ class SentimentTools:
                         device=-1
                     )
                     logger.info(f"✅ BERT Sentiment pipeline ({bert_model}) initialized.")
+            except ImportError:
+                logger.warning("Transformers library not installed. BERT sentiment analysis disabled.")
             except Exception as e:
                 if self.mode == "bert":
                     logger.error(f"BERT mode requested but failed: {e}")
@@ -119,7 +125,6 @@ class SentimentTools:
         if not self.llm_model:
             return {"score": 0.0, "label": "neutral", "error": "LLM not initialized"}
 
-        from agno.agent import Agent
         analyzer = Agent(model=self.llm_model, markdown=True)
         prompt = f"""请分析以下金融/新闻文本的情绪极性。
         返回严格的 JSON 格式:

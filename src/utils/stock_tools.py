@@ -3,6 +3,8 @@ from typing import List, Dict, Optional
 import akshare as ak
 import pandas as pd
 import re
+import sqlite3
+from requests.exceptions import RequestException
 from loguru import logger
 from utils.database_manager import DatabaseManager
 
@@ -133,8 +135,12 @@ class StockTools:
             except KeyError as e:
                 # Akshare 有时在某些股票无数据时会抛出 KeyError
                 logger.warning(f"⚠️ Akshare data missing for {clean_ticker}: {e}")
+            except (RequestException, ConnectionError) as e:
+                logger.error(f"❌ Network error during Akshare sync for {clean_ticker}: {e}")
+            except sqlite3.Error as e:
+                logger.error(f"❌ Database error during Akshare sync for {clean_ticker}: {e}")
             except Exception as e:
-                logger.error(f"❌ Akshare sync failed for {clean_ticker}: {e}")
+                logger.error(f"❌ Unexpected error during Akshare sync for {clean_ticker}: {e}")
         
         return df_db
 

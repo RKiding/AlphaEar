@@ -78,7 +78,7 @@ class ReportAgent:
                 sig_obj = InvestmentSignal(**signal)
             except:
                 # Fallback for old dicts
-                return f"--- 信号 [{index}] ---\n标格: {signal.get('title')}\n内容: {signal.get('content', '')[:500]}"
+                return f"--- 信号 [{index}] ---\n标题: {signal.get('title')}\n内容: {signal.get('content', '')[:500]}"
         else:
             sig_obj = signal
 
@@ -470,7 +470,6 @@ class ReportAgent:
         stock_tools = StockTools(self.db, auto_update=False)
 
         def replace_match(match):
-            from utils.json_utils import extract_json
             json_str = match.group(1).strip()
             try:
                 config = extract_json(json_str)
@@ -578,13 +577,13 @@ class ReportAgent:
                     title = config.get("title", "舆情情绪趋势")
                     
                     if keywords:
-                        # 简单的 SQL 查询 (注意可能有 SQL 注入风险，但在 Agent 内部可控)
-                        # 构造 OR 查询以获取更多相关数据
-                        conditions = " OR ".join([f"content LIKE '%{k}%'" for k in keywords])
+                        # 使用参数化查询防止 SQL 注入
+                        conditions = " OR ".join(["content LIKE ?" for _ in keywords])
+                        params = tuple(f"%{k}%" for k in keywords)
                         query = f"SELECT publish_time, sentiment_score FROM daily_news WHERE ({conditions}) AND sentiment_score IS NOT NULL ORDER BY publish_time"
                         
-                        logger.info(f"📊 Executing sentiment query: {query}")
-                        results = self.db.execute_query(query)
+                        logger.info(f"📊 Executing sentiment query: {query} with {len(params)} params")
+                        results = self.db.execute_query(query, params)
                         logger.info(f"📊 Query result count: {len(results)}")
                         
                         if not results or len(results) == 0:
@@ -598,10 +597,11 @@ class ReportAgent:
                             broad_keywords = list(set([k for k in broad_keywords if len(k) > 1]))
                             
                             if broad_keywords:
-                                conditions = " OR ".join([f"content LIKE '%{k}%'" for k in broad_keywords])
+                                conditions = " OR ".join(["content LIKE ?" for _ in broad_keywords])
+                                params = tuple(f"%{k}%" for k in broad_keywords)
                                 query = f"SELECT publish_time, sentiment_score FROM daily_news WHERE ({conditions}) AND sentiment_score IS NOT NULL ORDER BY publish_time"
-                                logger.info(f"📊 Executing fallback sentiment query: {query}")
-                                results = self.db.execute_query(query)
+                                logger.info(f"📊 Executing fallback sentiment query: {query} with {len(params)} params")
+                                results = self.db.execute_query(query, params)
                                 logger.info(f"📊 Fallback query result count: {len(results)}")
 
                         if results:

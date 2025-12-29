@@ -1,6 +1,8 @@
 import requests
+from requests.exceptions import RequestException, Timeout, ConnectionError
 import os
 import time
+import json
 import threading
 from typing import Optional
 from loguru import logger
@@ -95,7 +97,7 @@ class ContentExtractor:
                     if isinstance(data, dict) and "data" in data:
                         return data["data"].get("content", "")
                     return data.get("content", response.text)
-                except:
+                except (json.JSONDecodeError, TypeError):
                     return response.text
             elif response.status_code == 429:
                 # 触发速率限制，等待后重试一次
@@ -106,6 +108,15 @@ class ContentExtractor:
                 logger.warning(f"Jina extraction failed (Status {response.status_code}) for {url}")
                 return None
                 
+        except Timeout:
+            logger.error(f"Timeout during Jina extraction for {url}")
+            return None
+        except ConnectionError:
+            logger.error(f"Connection error during Jina extraction for {url}")
+            return None
+        except RequestException as e:
+            logger.error(f"Request error during Jina extraction: {e}")
+            return None
         except Exception as e:
-            logger.error(f"Error during Jina extraction: {e}")
+            logger.error(f"Unexpected error during Jina extraction: {e}")
             return None

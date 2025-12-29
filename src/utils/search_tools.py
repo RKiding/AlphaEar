@@ -1,11 +1,17 @@
 import os
 import hashlib
+import json
+import re
 from typing import List, Dict, Optional, Any
 from agno.tools.duckduckgo import DuckDuckGoTools
 from agno.tools.baidusearch import BaiduSearchTools
+from agno.agent import Agent
 from loguru import logger
 from datetime import datetime
 from utils.database_manager import DatabaseManager
+from utils.content_extractor import ContentExtractor
+from utils.llm.factory import get_model
+from utils.hybrid_search import LocalNewsSearch
 
 # 默认搜索缓存 TTL（秒），可通过环境变量覆盖
 DEFAULT_SEARCH_TTL = int(os.getenv("SEARCH_CACHE_TTL", "3600"))  # 默认 1 小时
@@ -17,7 +23,8 @@ class SearchTools:
         self.db = db
         self._engines = {
             "ddg": DuckDuckGoTools(),
-            "baidu": BaiduSearchTools()
+            "baidu": BaiduSearchTools(),
+            "local": LocalNewsSearch(db)
         }
 
     def _generate_hash(self, query: str, engine: str, max_results: int) -> str:
@@ -30,7 +37,8 @@ class SearchTools:
         Args:
             query: 搜索关键词，如 "英伟达财报" 或 "光伏行业政策"。
             engine: 搜索引擎选择。可选值: "ddg" (DuckDuckGo，推荐英文/国际搜索), 
-                    "baidu" (百度，推荐中文/国内搜索)。默认 "ddg"。
+                    "baidu" (百度，推荐中文/国内搜索),
+                    "local" (本地历史新闻搜索，基于向量+BM25)。默认 "ddg"。
             max_results: 期望返回的结果数量，默认 5 条。
             ttl: 缓存有效期（秒）。如果缓存超过此时间会重新搜索。
                  默认使用环境变量 SEARCH_CACHE_TTL 或 3600 秒。
@@ -45,11 +53,12 @@ class SearchTools:
         query_hash = self._generate_hash(query, engine, max_results)
         effective_ttl = ttl if ttl is not None else DEFAULT_SEARCH_TTL
         
-        # 1. 尝试从缓存读取
-        cache = self.db.get_search_cache(query_hash, ttl_seconds=effective_ttl if effective_ttl > 0 else None)
-        if cache and effective_ttl != 0:
-            logger.info(f"ℹ️ Found search results in cache for: {query} ({engine})")
-            return cache['results']
+        # 1. 尝试从缓存读取 (local 引擎不缓存，因为它本身就是查库)
+        if engine != "local":
+            cache = self.db.get_search_cache(query_hash, ttl_seconds=effective_ttl if effective_ttl > 0 else None)
+            if cache and effective_ttl != 0:
+                logger.info(f"ℹ️ Found search results in cache for: {query} ({engine})")
+                return cache['results']
 
         # 2. 执行真实搜索
         logger.info(f"📡 Searching {engine} for: {query}")
@@ -59,11 +68,22 @@ class SearchTools:
                 results = tool.duckduckgo_search(query, max_results=max_results)
             elif engine == "baidu":
                 results = tool.baidu_search(query, max_results=max_results)
+            elif engine == "local":
+                # LocalNewsSearch 返回的是 List[Dict]
+                local_results = tool.search(query, top_n=max_results)
+                results = []
+                for r in local_results:
+                    results.append({
+                        "title": r.get("title"),
+                        "href": r.get("url", "local"),
+                        "body": r.get("content", "")[:300]
+                    })
             else:
                 results = "Search not implemented for this engine."
             
             results_str = str(results)
-            self.db.save_search_cache(query_hash, query, engine, results_str)
+            if engine != "local":
+                self.db.save_search_cache(query_hash, query, engine, results_str)
             return results_str
             
         except Exception as e:
@@ -82,9 +102,6 @@ class SearchTools:
             logger.error(f"Unsupported engine {engine}")
             return []
             
-        import json
-        from utils.content_extractor import ContentExtractor
-        
         # 不同的 hash 以区分是否 enrichment
         enrich_suffix = ":enriched" if enrich else ""
         query_hash = self._generate_hash(query, engine + enrich_suffix, max_results)
@@ -181,9 +198,21 @@ class SearchTools:
                 results = tool.duckduckgo_search(query, max_results=max_results)
             elif engine == "baidu":
                 results = tool.baidu_search(query, max_results=max_results)
+            elif engine == "local":
+                # LocalNewsSearch 返回的是 List[Dict]
+                local_results = tool.search(query, top_n=max_results)
+                results = []
+                for r in local_results:
+                    results.append({
+                        "title": r.get("title"),
+                        "url": r.get("url", "local"),
+                        "body": r.get("content", "")[:500],
+                        "source": f"Local ({r.get('source', 'db')})",
+                        "publish_time": r.get("publish_time")
+                    })
             
             # 处理字符串类型的 JSON 返回 (Baidu 常返 JSON 字符串)
-            if isinstance(results, str):
+            if isinstance(results, str) and engine != "local":
                 try:
                     results = json.loads(results)
                 except:
@@ -275,11 +304,6 @@ class SearchTools:
         使用 LLM 评估缓存候选是否足以回答当前问题。
         """
         try:
-            from agno.agent import Agent
-            from utils.llm.factory import get_model
-            import json
-            import re
-            
             # Prepare candidates text
             candidates_desc = []
             for i, c in enumerate(candidates):

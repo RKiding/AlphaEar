@@ -1,4 +1,5 @@
 import requests
+from requests.exceptions import RequestException, Timeout
 import json
 import time
 from datetime import datetime
@@ -92,8 +93,17 @@ class NewsNowTools:
             else:
                 logger.error(f"NewsNow API Error: {response.status_code}")
                 return []
+        except Timeout:
+            logger.error(f"Timeout fetching hot news from {source_id}")
+            return []
+        except RequestException as e:
+            logger.error(f"Network error fetching hot news from {source_id}: {e}")
+            return []
+        except json.JSONDecodeError:
+            logger.error(f"Failed to parse JSON response from NewsNow for {source_id}")
+            return []
         except Exception as e:
-            logger.error(f"Failed to fetch hot news from {source_id}: {e}")
+            logger.error(f"Unexpected error fetching hot news from {source_id}: {e}")
             return []
 
     def fetch_news_content(self, url: str) -> Optional[str]:
@@ -197,8 +207,17 @@ class PolymarketTools:
             else:
                 logger.warning(f"⚠️ Polymarket API 返回 {response.status_code}")
                 return []
+        except Timeout:
+            logger.error("Timeout fetching Polymarket markets")
+            return []
+        except RequestException as e:
+            logger.error(f"Network error fetching Polymarket markets: {e}")
+            return []
+        except json.JSONDecodeError:
+            logger.error("Failed to parse JSON response from Polymarket")
+            return []
         except Exception as e:
-            logger.warning(f"⚠️ Polymarket 获取失败: {e}")
+            logger.error(f"Unexpected error fetching Polymarket markets: {e}")
             return []
     
     def get_market_summary(self, limit: int = 10) -> str:

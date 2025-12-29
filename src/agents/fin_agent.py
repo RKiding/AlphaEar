@@ -1,4 +1,5 @@
 import os
+import time
 from datetime import datetime
 from typing import List, Optional
 from agno.agent import Agent
@@ -49,7 +50,6 @@ class FinAgent:
         """
         分析具体的金融信号并返回结构化的 InvestmentSignal
         """
-        import time
         
         logger.info(f"💼 FinAgent analyzing signal: {signal_text[:50]}...")
         task = f"请详细分析以下金融信号，并按要求输出 JSON 表彰：\n\n{signal_text}"
@@ -57,8 +57,6 @@ class FinAgent:
         for attempt in range(max_retries):
             try:
                 response = self.agent.run(task)
-                content = response.content if hasattr(response, 'content') else str(response)
-                
                 content = response.content if hasattr(response, 'content') else str(response)
                 
                 # 尝试从内容中提取 JSON

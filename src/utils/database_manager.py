@@ -119,6 +119,12 @@ class DatabaseManager:
             )
         """)
         
+        # 6. 创建索引以优化查询性能
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_news_crawl_time ON daily_news(crawl_time)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_news_source ON daily_news(source)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_search_cache_timestamp ON search_cache(timestamp)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_stock_prices_ticker_date ON stock_prices(ticker, date)")
+        
         self.conn.commit()
 
     # --- 新闻数据操作 ---
@@ -150,8 +156,10 @@ class DatabaseManager:
                     json.dumps(news.get('meta_data', {}))
                 ))
                 count += 1
+            except sqlite3.Error as e:
+                logger.error(f"Database error saving news item {news.get('title')}: {e}")
             except Exception as e:
-                logger.error(f"Error saving news item {news.get('title')}: {e}")
+                logger.error(f"Unexpected error saving news item {news.get('title')}: {e}")
         
         self.conn.commit()
         return count
@@ -293,8 +301,10 @@ class DatabaseManager:
                         item.get('source'),
                         json.dumps(item.get('meta_data', {}))
                     ))
+                except sqlite3.Error as e:
+                    logger.error(f"Database error saving search detail {item.get('title')}: {e}")
                 except Exception as e:
-                    logger.error(f"Failed to save search detail {item.get('title')}: {e}")
+                    logger.error(f"Unexpected error saving search detail {item.get('title')}: {e}")
                     
         self.conn.commit()
 
@@ -343,8 +353,10 @@ class DatabaseManager:
                 data
             )
             self.conn.commit()
+        except sqlite3.Error as e:
+            logger.error(f"Database error saving stock list: {e}")
         except Exception as e:
-            logger.error(f"Failed to save stock list: {e}")
+            logger.error(f"Unexpected error saving stock list: {e}")
 
     def search_stock(self, query: str, limit: int = 5) -> List[Dict]:
         """模糊搜索股票代码或名称"""
@@ -388,8 +400,10 @@ class DatabaseManager:
                     row['change_pct']
                 ))
             self.conn.commit()
+        except sqlite3.Error as e:
+            logger.error(f"Database error saving stock prices for {ticker}: {e}")
         except Exception as e:
-            logger.error(f"Failed to save stock prices for {ticker}: {e}")
+            logger.error(f"Unexpected error saving stock prices for {ticker}: {e}")
 
     def get_stock_prices(self, ticker: str, start_date: str, end_date: str) -> pd.DataFrame:
         """获取指定日期范围的股价数据"""
@@ -418,8 +432,11 @@ class DatabaseManager:
             else:
                 self.conn.commit()
                 return []
+        except sqlite3.Error as e:
+            logger.error(f"SQL execution failed (Database error): {e}")
+            return []
         except Exception as e:
-            logger.error(f"SQL execution failed: {e}")
+            logger.error(f"SQL execution failed (Unexpected error): {e}")
             return []
 
     # --- 投资信号操作 (ISQ Framework) ---
