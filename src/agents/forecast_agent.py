@@ -82,14 +82,7 @@ class ForecastAgent:
                 f"⚠️ Using degraded lookback for {ticker}: {effective_lookback} (desired {lookback})"
             )
 
-        # 2. 模型预测 (Base Forecast)
-        base_points = self.predictor_util.get_base_forecast(df, lookback=effective_lookback, pred_len=pred_len)
-        if not base_points:
-            logger.warning(f"⚠️ Failed to get base forecast for {ticker}")
-            return None
-
-        # 3. LLM 调整 (Adjusted Forecast)
-        # 汇总相关信号作为背景 + 可选的报告写作上下文
+        # 2. 准备信号上下文 (提前到预测之前，因为 news-aware model 需要它)
         signal_lines = []
         for s in (signals or []):
             try:
@@ -105,6 +98,29 @@ class ForecastAgent:
                 continue
 
         signals_context = "\n".join(signal_lines).strip()
+        
+        # 3. 模型预测 (Two-Pass: Technical & News-Adjusted)
+        # Pass 1: Pure Technical
+        tech_points = self.predictor_util.get_base_forecast(df, lookback=effective_lookback, pred_len=pred_len, news_text=None)
+        
+        # Pass 2: News-Adjusted (Only if we have signals context)
+        news_points = []
+        if signals_context:
+            news_points = self.predictor_util.get_base_forecast(df, lookback=effective_lookback, pred_len=pred_len, news_text=signals_context)
+        
+        if not tech_points:
+            logger.warning(f"⚠️ Failed to get base forecast for {ticker}")
+            return None
+
+        # Determine if we successfully got a different news forecast
+        has_news_forecast = False
+        if news_points and news_points != tech_points:
+             has_news_forecast = True
+        else:
+             news_points = tech_points # Fallback
+
+        # 4. LLM Rationale Generation (Formerly Adjustment)
+        
         ctx_parts = []
         if effective_lookback != lookback:
             ctx_parts.append(
@@ -112,12 +128,21 @@ class ForecastAgent:
             )
         if signals_context:
             ctx_parts.append("【相关结构化信号摘要（较高可信）】\n" + signals_context)
+        
+        if has_news_forecast:
+             # Add the specific quantitative adjustment to context for LLM to analyze
+             # Convert news_points to string
+             news_forecast_str = "\n".join([f"Day {i+1}: Open={p.open:.2f}, Close={p.close:.2f}" for i, p in enumerate(news_points)])
+             ctx_parts.append(f"【Kronos模型定量修正预测】\n基于上述新闻训练的专用模型已给出以下修正后走势，请重点分析此走势与纯技术面预测的差异合理性：\n{news_forecast_str}")
+
         if extra_context:
             ctx_parts.append(extra_context)
 
-        news_context = "\n\n".join(ctx_parts).strip() or "（无额外上下文）"
+        final_context = "\n\n".join(ctx_parts).strip() or "（无额外上下文）"
         
-        adjust_instructions = get_forecast_adjustment_instructions(ticker, news_context, base_points)
+        # We pass 'tech_points' as the base to the prompt.
+        # If 'has_news_forecast' is True, the LLM sees the 'correction' in the context and should align with it.
+        adjust_instructions = get_forecast_adjustment_instructions(ticker, final_context, tech_points)
         self.adjuster.instructions = [adjust_instructions]
         
         try:
@@ -125,25 +150,40 @@ class ForecastAgent:
             content = response.content if hasattr(response, 'content') else str(response)
             
             adjust_data = extract_json(content)
+            
+            # Key Change: If we have a robust News Model forecast, we prefer it over LLM's hallucinated numbers,
+            # unless the LLM suggests minor refinements (which it might).
+            # But to be safe and use our trained model, we should verify if LLM output is drastically different.
+            # For now, let's trust the LLM's output because the prompt asks it to "output the valid forecast".
+            # Since we fed the 'News Forecast' into the context, a smart LLM should adopt it.
+            
             if adjust_data and "adjusted_forecast" in adjust_data:
-                adjusted_points = [KLinePoint(**p) for p in adjust_data["adjusted_forecast"]]
+                final_points = [KLinePoint(**p) for p in adjust_data["adjusted_forecast"]]
                 rationale = adjust_data.get("rationale", "LLM subjectively adjusted based on news context.")
                 
-                logger.info(f"✅ Forecast adjusted by LLM for {ticker}")
                 return ForecastResult(
                     ticker=ticker,
-                    base_forecast=base_points,
-                    adjusted_forecast=adjusted_points,
+                    base_forecast=tech_points, # Always show the technical baseline
+                    adjusted_forecast=final_points, # LLM's final call (influenced by News Model)
                     rationale=rationale
                 )
             else:
-                logger.warning(f"⚠️ LLM adjustment failed or returned bad format for {ticker}. Using base only.")
-                return ForecastResult(
-                    ticker=ticker,
-                    base_forecast=base_points,
-                    adjusted_forecast=base_points,
-                    rationale="Fallback: LLM adjustment failed."
-                )
+                # If LLM fails to output valid JSON, but we have a news forecast, use it.
+                if has_news_forecast:
+                    logger.warning(f"⚠️ LLM json parsing failed for {ticker}, but we have News Model forecast. Using that.")
+                    return ForecastResult(
+                        ticker=ticker,
+                        base_forecast=tech_points,
+                        adjusted_forecast=news_points,
+                        rationale="LLM parsing failed. Reverted to Kronos News-Aware Model output."
+                    )
+                else:
+                    return ForecastResult(
+                        ticker=ticker,
+                        base_forecast=tech_points,
+                        adjusted_forecast=tech_points,
+                        rationale="Fallback: LLM adjustment failed."
+                    )
                 
         except Exception as e:
             logger.error(f"❌ Error during forecast adjustment for {ticker}: {e}")

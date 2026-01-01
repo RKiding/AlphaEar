@@ -388,6 +388,24 @@ class ReportAgent:
         if not reqs:
             return {}
 
+        # Allowlist: only generate forecasts for tickers that are backed by structured signals.
+        allowed_tickers: Optional[set[str]] = None
+        if signals:
+            allowed_tickers = set()
+            for s in signals:
+                impact = getattr(s, 'impact_tickers', None) if not isinstance(s, dict) else s.get('impact_tickers')
+                if not isinstance(impact, list):
+                    continue
+                for item in impact:
+                    if not isinstance(item, dict):
+                        continue
+                    t = item.get('ticker') or item.get('code') or item.get('symbol')
+                    tt = self._clean_ticker(str(t or ""))
+                    if tt and tt.isdigit() and len(tt) in (5, 6):
+                        allowed_tickers.add(tt)
+            if not allowed_tickers:
+                allowed_tickers = None
+
         # group by key, merge context
         grouped: Dict[tuple, Dict[str, Any]] = {}
         for r in reqs:
@@ -412,11 +430,20 @@ class ReportAgent:
         for key, g in grouped.items():
             ticker, pred_len = key
 
+            if allowed_tickers is not None and str(ticker) not in allowed_tickers:
+                logger.info(f"ℹ️ Skip forecast for {ticker}: not in validated impact_tickers")
+                continue
+
             related_signals: List[Any] = []
             if signals:
                 for s in signals:
                     if self._signal_mentions_ticker(s, str(ticker)):
                         related_signals.append(s)
+
+            # If we have signals context, require at least one related signal for attribution.
+            if signals and not related_signals:
+                logger.info(f"ℹ️ Skip forecast for {ticker}: no attributable signals")
+                continue
 
             # merge context snippets (cap size)
             merged_snippet = "\n\n---\n\n".join([s for s in g['snippets'] if s])
@@ -1388,16 +1415,55 @@ class ReportAgent:
                     title = config.get("title", "投资逻辑传导链条")
                     
                     if nodes:
-                        # 生成基于节点内容的唯一标识，避免相同时间戳下的重复图表
+                        # 生成基于节点内容的唯一标识
                         nodes_str = json.dumps(nodes, sort_keys=True, ensure_ascii=False)
                         content_hash = hashlib.md5(nodes_str.encode()).hexdigest()[:8]
                         
+                        # Generate XML using LLM
+                        try:
+                            from prompts.visualizer import get_drawio_system_prompt, get_drawio_task
+                            
+                            # Use tool_model (usually faster/cheaper) or main model
+                            # Creating a lightweight agent purely for XML generation
+                            visualizer_agent = Agent(
+                                model=self.tool_model,
+                                instructions=[get_drawio_system_prompt()],
+                                markdown=False
+                            )
+                            
+                            logger.info(f"🎨 Generating Draw.io XML for '{title}'...")
+                            resp = visualizer_agent.run(get_drawio_task(nodes, title))
+                            xml_content = resp.content
+                            
+                            # Basic cleanup if LLM wrapped in markdown code blocks
+                            match = re.search(r'<mxGraphModel.*?</mxGraphModel>', xml_content, re.DOTALL)
+                            if match:
+                                xml_content = match.group(0)
+                            
+                            timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+                            filename = f"reports/charts/trans_{timestamp}_{content_hash}.html"
+                            
+                            if match: # Only save if valid XML found
+                                VisualizerTools.render_drawio_to_html(xml_content, filename, title)
+                                rel_path = f"charts/trans_{timestamp}_{content_hash}.html"
+                                return f'\n<iframe src="{rel_path}" width="100%" height="500px" style="border:none;"></iframe>\n<p style="text-align:center;color:gray;font-size:12px">交互式逻辑推演图: {title} (AI Generated)</p>\n'
+                            else:
+                                logger.warning(f"⚠️ Failed to extract XML from Visualizer Agent response for {title}")
+                                # Fallback to old graph if XML gen fails? Or just return error text?
+                                # Let's try fallback to old graph if XML fails, for robustness.
+                                pass 
+                                
+                        except Exception as e:
+                            logger.error(f"Draw.io generation failed: {e}")
+                        
+                        # Fallback mechanism (Old Graph)
+                        logger.info("⚠️ Falling back to Pyecharts Graph for Transmission Chain.")
                         chart = VisualizerTools.generate_transmission_graph(nodes, title)
                         if chart:
                             timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-                            filename = f"reports/charts/trans_{timestamp}_{content_hash}.html"
+                            filename = f"reports/charts/trans_legacy_{timestamp}_{content_hash}.html"
                             VisualizerTools.render_chart_to_file(chart, filename)
-                            rel_path = f"charts/trans_{timestamp}_{content_hash}.html"
+                            rel_path = f"charts/trans_legacy_{timestamp}_{content_hash}.html"
                             return f'\n<iframe src="{rel_path}" width="100%" height="420px" style="border:none;"></iframe>\n<p style="text-align:center;color:gray;font-size:12px">逻辑传导拓扑图: {title}</p>\n'
 
                 # 如果是其他类型或失败，保留原文或者显示错误

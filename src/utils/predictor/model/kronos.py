@@ -195,7 +195,7 @@ class Kronos(nn.Module, PyTorchModelHubMixin):
         learn_te (bool): Whether to use learnable temporal embeddings.
     """
 
-    def __init__(self, s1_bits, s2_bits, n_layers, d_model, n_heads, ff_dim, ffn_dropout_p, attn_dropout_p, resid_dropout_p, token_dropout_p, learn_te):
+    def __init__(self, s1_bits, s2_bits, n_layers, d_model, n_heads, ff_dim, ffn_dropout_p, attn_dropout_p, resid_dropout_p, token_dropout_p, learn_te, news_dim=None):
         super().__init__()
         self.s1_bits = s1_bits
         self.s2_bits = s2_bits
@@ -208,6 +208,7 @@ class Kronos(nn.Module, PyTorchModelHubMixin):
         self.attn_dropout_p = attn_dropout_p
         self.resid_dropout_p = resid_dropout_p
         self.token_dropout_p = token_dropout_p
+        self.news_dim = news_dim
 
         self.s1_vocab_size = 2 ** self.s1_bits
         self.token_drop = nn.Dropout(self.token_dropout_p)
@@ -220,6 +221,12 @@ class Kronos(nn.Module, PyTorchModelHubMixin):
         self.norm = RMSNorm(self.d_model)
         self.dep_layer = DependencyAwareLayer(self.d_model)
         self.head = DualHead(self.s1_bits, self.s2_bits, self.d_model)
+
+        if self.news_dim is not None:
+            self.news_proj = nn.Linear(self.news_dim, self.d_model)
+        else:
+            self.news_proj = None
+
         self.apply(self._init_weights)
 
     def _init_weights(self, module):
@@ -236,7 +243,7 @@ class Kronos(nn.Module, PyTorchModelHubMixin):
         elif isinstance(module, RMSNorm):
             nn.init.ones_(module.weight)
 
-    def forward(self, s1_ids, s2_ids, stamp=None, padding_mask=None, use_teacher_forcing=False, s1_targets=None):
+    def forward(self, s1_ids, s2_ids, stamp=None, padding_mask=None, use_teacher_forcing=False, s1_targets=None, news_emb=None):
         """
         Args:
             s1_ids (torch.Tensor): Input tensor of s1 token IDs. Shape: [batch_size, seq_len]
@@ -245,6 +252,7 @@ class Kronos(nn.Module, PyTorchModelHubMixin):
             padding_mask (torch.Tensor, optional): Mask for padding tokens. Shape: [batch_size, seq_len]. Defaults to None.
             use_teacher_forcing (bool, optional): Whether to use teacher forcing for s1 decoding. Defaults to False.
             s1_targets (torch.Tensor, optional): Target s1 token IDs for teacher forcing. Shape: [batch_size, seq_len]. Defaults to None.
+            news_emb (torch.Tensor, optional): News embedding tensor. Shape: [batch_size, news_dim]. Defaults to None.
 
         Returns:
             Tuple[torch.Tensor, torch.Tensor]:
@@ -262,6 +270,10 @@ class Kronos(nn.Module, PyTorchModelHubMixin):
 
         x = self.norm(x)
 
+        if news_emb is not None and self.news_proj is not None:
+            news_bias = self.news_proj(news_emb).unsqueeze(1) # [B, 1, d_model]
+            x = x + news_bias
+
         s1_logits = self.head(x)
 
         if use_teacher_forcing:
@@ -275,7 +287,7 @@ class Kronos(nn.Module, PyTorchModelHubMixin):
         s2_logits = self.head.cond_forward(x2)
         return s1_logits, s2_logits
 
-    def decode_s1(self, s1_ids, s2_ids, stamp=None, padding_mask=None):
+    def decode_s1(self, s1_ids, s2_ids, stamp=None, padding_mask=None, news_emb=None):
         """
         Decodes only the s1 tokens.
 
@@ -287,6 +299,7 @@ class Kronos(nn.Module, PyTorchModelHubMixin):
             s2_ids (torch.Tensor): Input tensor of s2 token IDs. Shape: [batch_size, seq_len]
             stamp (torch.Tensor, optional): Temporal stamp tensor. Shape: [batch_size, seq_len]. Defaults to None.
             padding_mask (torch.Tensor, optional): Mask for padding tokens. Shape: [batch_size, seq_len]. Defaults to None.
+            news_emb (torch.Tensor, optional): News embedding tensor. Shape: [batch_size, news_dim]. Defaults to None.
 
         Returns:
             Tuple[torch.Tensor, torch.Tensor]:
@@ -303,6 +316,10 @@ class Kronos(nn.Module, PyTorchModelHubMixin):
             x = layer(x, key_padding_mask=padding_mask)
 
         x = self.norm(x)
+
+        if news_emb is not None and self.news_proj is not None:
+            news_bias = self.news_proj(news_emb).unsqueeze(1) # [B, 1, d_model]
+            x = x + news_bias
 
         s1_logits = self.head(x)
         return s1_logits, x
@@ -386,7 +403,7 @@ def sample_from_logits(logits, temperature=1.0, top_k=None, top_p=None, sample_l
     return x
 
 
-def auto_regressive_inference(tokenizer, model, x, x_stamp, y_stamp, max_context, pred_len, clip=5, T=1.0, top_k=0, top_p=0.99, sample_count=5, verbose=False):
+def auto_regressive_inference(tokenizer, model, x, x_stamp, y_stamp, max_context, pred_len, clip=5, T=1.0, top_k=0, top_p=0.99, sample_count=5, verbose=False, news_emb=None):
     with torch.no_grad():
         x = torch.clip(x, -clip, clip)
 
@@ -433,7 +450,7 @@ def auto_regressive_inference(tokenizer, model, x, x_stamp, y_stamp, max_context
             context_start = max(0, context_end - max_context)
             current_stamp = full_stamp[:, context_start:context_end, :].contiguous()
 
-            s1_logits, context = model.decode_s1(input_tokens[0], input_tokens[1], current_stamp)
+            s1_logits, context = model.decode_s1(input_tokens[0], input_tokens[1], current_stamp, news_emb=news_emb)
             s1_logits = s1_logits[:, -1, :]
             sample_pre = sample_from_logits(s1_logits, temperature=T, top_k=top_k, top_p=top_p, sample_logits=True)
 
@@ -495,18 +512,18 @@ class KronosPredictor:
         self.tokenizer = self.tokenizer.to(self.device)
         self.model = self.model.to(self.device)
 
-    def generate(self, x, x_stamp, y_stamp, pred_len, T, top_k, top_p, sample_count, verbose):
+    def generate(self, x, x_stamp, y_stamp, pred_len, T, top_k, top_p, sample_count, verbose, news_emb=None):
 
         x_tensor = torch.from_numpy(np.array(x).astype(np.float32)).to(self.device)
         x_stamp_tensor = torch.from_numpy(np.array(x_stamp).astype(np.float32)).to(self.device)
         y_stamp_tensor = torch.from_numpy(np.array(y_stamp).astype(np.float32)).to(self.device)
 
         preds = auto_regressive_inference(self.tokenizer, self.model, x_tensor, x_stamp_tensor, y_stamp_tensor, self.max_context, pred_len,
-                                          self.clip, T, top_k, top_p, sample_count, verbose)
+                                          self.clip, T, top_k, top_p, sample_count, verbose, news_emb=news_emb)
         preds = preds[:, -pred_len:, :]
         return preds
 
-    def predict(self, df, x_timestamp, y_timestamp, pred_len, T=1.0, top_k=0, top_p=0.9, sample_count=1, verbose=True):
+    def predict(self, df, x_timestamp, y_timestamp, pred_len, T=1.0, top_k=0, top_p=0.9, sample_count=1, verbose=True, news_emb=None):
 
         if not isinstance(df, pd.DataFrame):
             raise ValueError("Input must be a pandas DataFrame.")
@@ -540,7 +557,15 @@ class KronosPredictor:
         x_stamp = x_stamp[np.newaxis, :]
         y_stamp = y_stamp[np.newaxis, :]
 
-        preds = self.generate(x, x_stamp, y_stamp, pred_len, T, top_k, top_p, sample_count, verbose)
+        if news_emb is not None:
+            news_emb_tensor = torch.from_numpy(np.array(news_emb).astype(np.float32)).to(self.device)
+            # Ensure batch dimension for news_emb if only one sample
+            if news_emb_tensor.ndim == 1:
+                news_emb_tensor = news_emb_tensor.unsqueeze(0)
+        else:
+            news_emb_tensor = None
+
+        preds = self.generate(x, x_stamp, y_stamp, pred_len, T, top_k, top_p, sample_count, verbose, news_emb=news_emb_tensor)
 
         preds = preds.squeeze(0)
         preds = preds * (x_std + 1e-5) + x_mean

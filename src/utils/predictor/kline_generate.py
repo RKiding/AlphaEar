@@ -1,4 +1,4 @@
-# Source: https://github.com/shiyu-coder/Kronos
+# Ref: https://github.com/shiyu-coder/Kronos
 
 from model import Kronos, KronosTokenizer, KronosPredictor
 import pandas as pd
@@ -22,8 +22,7 @@ def load_predictor():
     model = model.to(device)
     return KronosPredictor(model, tokenizer, device=device, max_context=512)
 
-def load_data(ticker="002111"):
-    db_path = "/Users/runkeruan/Desktop/agent/SignalFlux/data/signal_flux.db"
+def load_data(ticker="002111", db_path="SignalFlux/data/signal_flux.db"):
     with sqlite3.connect(db_path) as conn:
         df = pd.read_sql_query(f"SELECT * FROM stock_prices WHERE ticker = '{ticker}'", conn)
     df['date'] = pd.to_datetime(df['date'])

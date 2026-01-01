@@ -5,15 +5,22 @@ from datetime import datetime
 from typing import List, Optional
 from loguru import logger
 from pandas.tseries.offsets import BusinessDay
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # Fix for Kronos internal imports
 import sys
 import os
-KRONOS_DIR = os.path.join(os.path.dirname(__file__), 'kronos')
+KRONOS_DIR = os.path.join(os.path.dirname(__file__), 'predictor')
 if KRONOS_DIR not in sys.path:
     sys.path.append(KRONOS_DIR)
 
-from utils.kronos.model import Kronos, KronosTokenizer, KronosPredictor
+import glob
+from sentence_transformers import SentenceTransformer
+
+from utils.predictor.model import Kronos, KronosTokenizer, KronosPredictor
 from schema.models import KLinePoint
 
 class KronosPredictorUtility:
@@ -38,8 +45,61 @@ class KronosPredictorUtility:
                 device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
             
             logger.info(f"🔮 Loading Kronos Model on {device}...")
-            tokenizer = KronosTokenizer.from_pretrained("NeoQuasar/Kronos-Tokenizer-base")
-            model = Kronos.from_pretrained("NeoQuasar/Kronos-base")
+            
+            # 1. Load Embedder (SentenceTransformer)
+            model_name = os.getenv('EMBEDDING_MODEL', 'sentence-transformers/all-MiniLM-L6-v2')  # Match training
+            try:
+                self.embedder = SentenceTransformer(model_name, device=device, local_files_only=True)
+            except Exception:
+                logger.warning(f"⚠️ Local embedder {model_name} not found. Downloading...")
+                self.embedder = SentenceTransformer(model_name, device=device)
+
+            # 2. Load Kronos Base
+            try:
+                tokenizer = KronosTokenizer.from_pretrained("NeoQuasar/Kronos-Tokenizer-base", local_files_only=True)
+                model = Kronos.from_pretrained("NeoQuasar/Kronos-base", local_files_only=True)
+            except Exception:
+                logger.warning("⚠️ Local Kronos cache not found. Attempting to download...")
+                tokenizer = KronosTokenizer.from_pretrained("NeoQuasar/Kronos-Tokenizer-base")
+                model = Kronos.from_pretrained("NeoQuasar/Kronos-base")
+            
+            # 3. Load Trained News Projector Weights
+            # Check exports/models directory
+            PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+            models_dir = os.path.join(PROJECT_ROOT, "exports/models")
+            model_files = glob.glob(os.path.join(models_dir, "*.pt"))
+            
+            if model_files:
+                latest_model = max(model_files, key=os.path.getctime)
+                logger.info(f"🔄 Loading trained news weights from {latest_model}...")
+                try:
+                    checkpoint = torch.load(latest_model, map_location=device)
+                    # The checkpoint contains 'news_proj_state_dict'
+                    if 'news_proj_state_dict' in checkpoint:
+                        # Ensure model has news_proj initialized with correct dim if needed (usually handled by config but good to be safe)
+                        # Kronos init usually sets news_proj if news_dim is passed. 
+                        # But here we loaded from pretrained which might have different config.
+                        # We need to manually re-init news_proj if it's None or shaped differently, 
+                        # but standard Kronos loading should be fine if we just load state dict.
+                        # Wait, original Kronos init might not have `news_dim` set if loaded from HF config without it.
+                        # We need to check if we need to re-init the layer.
+                        if not hasattr(model, 'news_proj') or model.news_proj is None:
+                            import torch.nn as nn
+                            news_dim = checkpoint.get('news_dim', 384)
+                            model.news_proj = nn.Linear(news_dim, model.d_model).to(device)
+                        
+                        model.news_proj.load_state_dict(checkpoint['news_proj_state_dict'])
+                        logger.success("✅ News-Aware Projection Layer loaded!")
+                        self.has_news_model = True
+                    else:
+                        logger.warning("⚠️ Checkpoint found but missing 'news_proj_state_dict'. Using base model.")
+                        self.has_news_model = False
+                except Exception as e:
+                    logger.error(f"❌ Failed to load trained weights: {e}. Using base model.")
+                    self.has_news_model = False
+            else:
+                logger.info("ℹ️ No trained news models found. Using base model.")
+                self.has_news_model = False
             
             tokenizer = tokenizer.to(device)
             model = model.to(device)
@@ -49,8 +109,9 @@ class KronosPredictorUtility:
         except Exception as e:
             logger.error(f"❌ Failed to load Kronos Model: {e}")
             self._predictor = None
+            self.has_news_model = False
 
-    def get_base_forecast(self, df: pd.DataFrame, lookback: int = 20, pred_len: int = 5) -> List[KLinePoint]:
+    def get_base_forecast(self, df: pd.DataFrame, lookback: int = 20, pred_len: int = 5, news_text: Optional[str] = None) -> List[KLinePoint]:
         """
         生成原始模型预测
         """
@@ -71,6 +132,16 @@ class KronosPredictorUtility:
         future_dates = pd.date_range(start=last_date + BusinessDay(1), periods=pred_len, freq='B')
         y_timestamp = pd.Series(future_dates)
 
+        # Embedding News if available
+        news_emb = None
+        if news_text and getattr(self, 'has_news_model', False) and hasattr(self, 'embedder'):
+            try:
+                # Truncate to avoid too long text
+                emb = self.embedder.encode(news_text[:1000])
+                news_emb = emb # KronosPredictor expects numpy array or tensor
+            except Exception as e:
+                logger.error(f"Failed to encode news: {e}")
+
         try:
             # 预测所需的列
             cols = ['open', 'high', 'low', 'close', 'volume']
@@ -82,7 +153,8 @@ class KronosPredictorUtility:
                 T=1.0, 
                 top_p=0.9, 
                 sample_count=1,
-                verbose=False
+                verbose=False,
+                news_emb=news_emb
             )
             
             # 转换为 KLinePoint

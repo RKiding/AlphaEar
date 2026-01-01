@@ -73,6 +73,7 @@ class FinAgent:
         research_task = get_fin_research_task(signal_text)
         research_context_str = ""
         research_raw_response = ""
+        research_data = None
         
         try:
             logger.info("📊 Phase 1: Researcher gathering information using tools...")
@@ -113,6 +114,9 @@ class FinAgent:
                     # 补全 news_id 如果有
                     if news_id and not json_data.get('signal_id'):
                         json_data['signal_id'] = news_id
+
+                    # Sanitize tickers to avoid low-quality hallucinated associations.
+                    json_data = self._sanitize_signal_output(json_data, research_data=research_data, raw_signal=signal_text)
                     
                     logger.info(f"✅ Analysis completed successfully (attempt {attempt + 1}/{max_retries})")
                     logger.debug(f"Extracted signal: {json_data.get('title', 'N/A')}, confidence: {json_data.get('confidence', 'N/A')}")
@@ -130,6 +134,94 @@ class FinAgent:
                 else:
                     logger.error("❌ FinAgent analysis failed after all retries")
                     return None
+
+    @staticmethod
+    def _clean_digits(value: str) -> str:
+        s = (value or "").strip()
+        if not s:
+            return ""
+        return "".join([c for c in s if c.isdigit()])
+
+    def _sanitize_signal_output(self, json_data: dict, research_data: Optional[dict] = None, raw_signal: str = "") -> dict:
+        """Post-process LLM output to prevent spurious ticker/name binding.
+
+        Rules (conservative by default):
+        - impact_tickers must be valid A/H numeric codes present in cached stock_list.
+        - The ticker must be supported by evidence: it appears in signal title/summary/source titles/urls,
+          OR it was returned via the researcher's structured tickers_found.
+        - The displayed name is overwritten by the official name from stock_list.
+        """
+        if not isinstance(json_data, dict):
+            return json_data
+
+        tool_suggested: set[str] = set()
+        if isinstance(research_data, dict):
+            tf = research_data.get('tickers_found')
+            if isinstance(tf, list):
+                for item in tf:
+                    if not isinstance(item, dict):
+                        continue
+                    code_raw = item.get('code') or item.get('ticker') or item.get('symbol')
+                    code = self._clean_digits(str(code_raw or ""))
+                    if code:
+                        tool_suggested.add(code)
+
+        sources = json_data.get('sources')
+        source_titles: list[str] = []
+        source_urls: list[str] = []
+        if isinstance(sources, list):
+            for s in sources:
+                if not isinstance(s, dict):
+                    continue
+                t = str(s.get('title') or "").strip()
+                u = str(s.get('url') or "").strip()
+                if t:
+                    source_titles.append(t)
+                if u:
+                    source_urls.append(u)
+
+        evidence_text = " ".join([
+            str(raw_signal or ""),
+            str(json_data.get('title') or ""),
+            str(json_data.get('summary') or ""),
+            " ".join(source_titles),
+            " ".join(source_urls),
+        ])
+
+        impact = json_data.get('impact_tickers')
+        if not isinstance(impact, list) or not impact:
+            return json_data
+
+        sanitized: list[dict] = []
+        for item in impact:
+            if not isinstance(item, dict):
+                continue
+            code_raw = item.get('ticker') or item.get('code') or item.get('symbol')
+            code = self._clean_digits(str(code_raw or ""))
+            if not (code.isdigit() and len(code) in (5, 6)):
+                continue
+
+            stock = self.db.get_stock_by_code(code)
+            if not stock:
+                continue
+            official_name = stock.get('name') or ""
+
+            # Evidence gate: allow if suggested by tools OR explicitly mentioned in evidence.
+            mentioned = (code in evidence_text) or (official_name and official_name in evidence_text)
+            if tool_suggested:
+                if code not in tool_suggested and not mentioned:
+                    continue
+            else:
+                if not mentioned:
+                    continue
+
+            new_item = dict(item)
+            new_item['ticker'] = code
+            new_item['name'] = official_name
+            sanitized.append(new_item)
+
+        json_data['impact_tickers'] = sanitized
+        return json_data
 
     def run(self, task: str) -> str:
         """通用运行入口 - 使用分析师 Agent 执行任务"""

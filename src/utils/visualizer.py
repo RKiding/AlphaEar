@@ -16,7 +16,8 @@ class VisualizerTools:
         ticker: str, 
         title: str = None,
         prediction: Optional[List[float]] = None,
-        forecast: Optional[Any] = None # ForecastResult instance
+        forecast: Optional[Any] = None, # ForecastResult instance
+        ground_truth: Optional[pd.DataFrame] = None # For training visualization
     ) -> Grid:
         """
         生成股票 K 线图 + 成交量 + 预测趋势 (支持多状态 K 线)
@@ -129,6 +130,39 @@ class VisualizerTools:
             except Exception as e:
                 logger.error(f"Failed to process complex forecast: {e}")
 
+        # 2.5 处理 Ground Truth (用于训练评估可视化)
+        gt_line = None
+        if ground_truth is not None and not ground_truth.empty:
+            try:
+                gt_dates = [str(d)[:10] for d in ground_truth['date'].tolist()]
+                # 确保日期包含在 dates 中
+                for d in gt_dates:
+                    if d not in dates:
+                        dates.append(d)
+                dates = sorted(list(set(dates))) # Re-sort to maintain order
+
+                gt_values = [None] * len(dates)
+                for _, row in ground_truth.iterrows():
+                    d_str = str(row['date'])[:10]
+                    if d_str in dates:
+                        idx = dates.index(d_str)
+                        gt_values[idx] = float(row['close'])
+
+                gt_line = (
+                    Line()
+                    .add_xaxis(dates)
+                    .add_yaxis(
+                        "真实走势 (GT)",
+                        gt_values,
+                        is_connect_nones=True,
+                        linestyle_opts=opts.LineStyleOpts(width=3, color="#2ecc71"), # 绿色粗线
+                        label_opts=opts.LabelOpts(is_show=False)
+                    )
+                )
+                legend_items.append("真实走势 (GT)")
+            except Exception as e:
+                logger.error(f"Failed to process ground truth: {e}")
+
         # 3. 主 K 线图
         # 为了展示预测，也需要对主 K 线数据进行填充
         main_k_data = k_data + [[None]*4] * (len(dates) - len(df))
@@ -165,6 +199,7 @@ class VisualizerTools:
         if pred_line: kline.overlap(pred_line)
         if base_kline: kline.overlap(base_kline)
         if adj_kline: kline.overlap(adj_kline)
+        if gt_line: kline.overlap(gt_line)
 
         # 4. 成交量柱状图
         # 同理扩展成交量数据
@@ -205,6 +240,29 @@ class VisualizerTools:
         )
 
         return grid_chart
+
+    @staticmethod
+    def generate_loss_chart(losses: List[float], title: str = "训练损失收敛曲线") -> Line:
+        """生成 Loss 下降曲线图"""
+        line = (
+            Line(init_opts=opts.InitOpts(width="100%", height="400px", theme=ThemeType.LIGHT))
+            .add_xaxis(list(range(1, len(losses) + 1)))
+            .add_yaxis(
+                "Training Loss",
+                losses,
+                is_smooth=True,
+                linestyle_opts=opts.LineStyleOpts(width=2, color="#3b82f6"),
+                label_opts=opts.LabelOpts(is_show=False),
+                markpoint_opts=opts.MarkPointOpts(data=[opts.MarkPointItem(type_="min", name="最小值")])
+            )
+            .set_global_opts(
+                title_opts=opts.TitleOpts(title=title, pos_left="center"),
+                xaxis_opts=opts.AxisOpts(name="Epoch", is_scale=True),
+                yaxis_opts=opts.AxisOpts(name="Loss", is_scale=True),
+                tooltip_opts=opts.TooltipOpts(trigger="axis"),
+            )
+        )
+        return line
 
     @staticmethod
     def generate_sentiment_trend_chart(sentiment_history: List[Dict[str, Any]]) -> Line:
@@ -346,6 +404,59 @@ class VisualizerTools:
             )
         )
         return graph
+
+    @staticmethod
+    def render_drawio_to_html(xml_content: str, filename: str, title: str = "Logic Diagram") -> str:
+        """
+        将 Draw.io XML 渲染为包含 Viewer 的 HTML 文件
+        """
+        import json
+        
+        # 构造配置字典
+        config = {
+            "highlight": "#0000ff",
+            "nav": True,
+            "resize": True,
+            "toolbar": "zoom",
+            "xml": xml_content
+        }
+        
+        # 1. 转为 JSON 字符串 (自动处理内部的引号转义、换行符转义等)
+        json_str = json.dumps(config)
+        
+        # 2. 转为 HTML 属性安全的字符串 (主要是转义单引号，因为我们在 HTML 中用单引号包裹)
+        import html
+        safe_json_str = html.escape(json_str, quote=True)
+        
+        html_template = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <title>{title}</title>
+            <style>
+                body {{ font-family: sans-serif; padding: 20px; }}
+                .mxgraph {{ border: 1px solid #ddd; background: #fff; }}
+            </style>
+        </head>
+        <body>
+            <h2>{title}</h2>
+            <div class="mxgraph" style="max-width:100%;border:1px solid transparent;" data-mxgraph='{safe_json_str}'></div>
+            <script type="text/javascript" src="https://viewer.diagrams.net/js/viewer-static.min.js"></script>
+        </body>
+        </html>
+        """
+        
+        try:
+            os.makedirs(os.path.dirname(filename), exist_ok=True)
+            # Use 'w' mode with utf-8 encoding
+            with open(filename, 'w', encoding='utf-8') as f:
+                f.write(html_template)
+            logger.info(f"✅ Draw.io chart rendered to {filename}")
+            return filename
+        except Exception as e:
+            logger.error(f"Failed to render drawio chart: {e}")
+            return ""
 
     @staticmethod
     def render_chart_to_file(chart: Any, filename: str) -> str:
