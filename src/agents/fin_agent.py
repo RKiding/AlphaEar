@@ -13,7 +13,8 @@ from prompts.fin_agent import (
     get_fin_analyst_instructions,
     get_fin_research_task,
     format_research_context,
-    get_fin_analysis_task
+    get_fin_analysis_task,
+    get_tracking_analysis_task
 )
 from schema.models import InvestmentSignal, ResearchContext
 from utils.json_utils import extract_json
@@ -222,6 +223,62 @@ class FinAgent:
 
         json_data['impact_tickers'] = sanitized
         return json_data
+
+    def track_signal(self, old_signal: dict, max_retries: int = 3) -> Optional[InvestmentSignal]:
+        """
+        追踪并更新已有信号的状态（Update/Tracking Mode）
+        1. 研究员：针对该信号搜集最新进展（Price + News）
+        2. 分析师：对比新旧信息，输出 Evolution
+        """
+        title = old_signal.get("title", "Unknown")
+        logger.info(f"🔄 Tracking signal evolution: {title}")
+        
+        # 1. 针对性搜集最新信息
+        # 构造一个侧重于“近期变化”的研究任务
+        research_task = f"请追踪【{title}】的最新进展。重点查询：1. 最近的股价走势和关键公告。2. 原有的逻辑（{old_signal.get('summary', '')}）是否发生变化？包含具体的新闻标题和价格。"
+        
+        research_context_str = ""
+        research_data = None
+        
+        try:
+            logger.info(f"📊 Tracking Phase 1: Researching updates for {title}...")
+            research_response = self.researcher.run(research_task)
+            research_raw_response = research_response.content if hasattr(research_response, 'content') else str(research_response)
+            research_context_str = research_raw_response
+            research_data = extract_json(research_raw_response)
+        except Exception as e:
+            logger.warning(f"⚠️ Tracking research failed: {e}")
+            research_context_str = "（追踪研究失败，仅基于已有数据）"
+            
+        # 2. 分析师执行追踪更新
+        tracking_task = get_tracking_analysis_task(old_signal, research_context_str)
+        
+        logger.info(f"🧠 Tracking Phase 2: Analyst evaluating evolution...")
+        
+        for attempt in range(max_retries):
+            try:
+                response = self.analyst.run(tracking_task)
+                content = response.content if hasattr(response, 'content') else str(response)
+                
+                json_data = extract_json(content)
+                if json_data:
+                    # 保持 ID 不变
+                    json_data['signal_id'] = old_signal.get('signal_id', f"evolved_{int(time.time())}")
+                    
+                    # Sanitize
+                    json_data = self._sanitize_signal_output(json_data, research_data=research_data, raw_signal=f"Tracking: {title}")
+                    
+                    logger.info(f"✅ Tracking completed for {title}")
+                    return InvestmentSignal(**json_data)
+                    
+                raise ValueError("No valid JSON in tracking response")
+                
+            except Exception as e:
+                logger.warning(f"⚠️ Tracking attempt {attempt + 1} failed: {e}")
+                if attempt < max_retries - 1:
+                    time.sleep(2)
+                    
+        return None
 
     def run(self, task: str) -> str:
         """通用运行入口 - 使用分析师 Agent 执行任务"""

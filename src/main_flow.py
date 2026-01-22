@@ -2,7 +2,7 @@ import os
 import json
 import re
 from datetime import datetime
-from typing import List, Dict, Optional, Union
+from typing import List, Dict, Optional, Union, Any
 from loguru import logger
 from dotenv import load_dotenv
 
@@ -12,21 +12,22 @@ from utils.llm.router import router
 from utils.search_tools import SearchTools
 from utils.json_utils import extract_json
 from agents import TrendAgent, FinAgent, ReportAgent, IntentAgent
-from schema.models import InvestmentSignal, InvestmentReport
+from utils.stock_tools import StockTools
 from agno.agent import Agent
-from utils.md_to_html import save_report_as_html
 from prompts.trend_agent import get_news_filter_instructions
-from utils.checkpointing import CheckpointManager, resolve_latest_run_id
-from utils.logging_setup import setup_file_logging, make_run_id
+from utils.checkpointing import CheckpointManager
+from utils.md_to_html import save_report_as_html
 
 class SignalFluxWorkflow:
     """
-    SignalFlux 主工作流
+    AlphaEar 主工作流
     
     流程:
     1. TrendAgent -> 扫描热点
     2. FinAgent -> 深度分析
     3. ReportAgent -> 生成研报
+    
+    支持 update_run: 基于旧版 Run 的信号，刷新行情并生成新版报告（对比分析）
     """
     
     def __init__(self, db_path: str = "data/signal_flux.db", isq_template_id: str = "default_isq_v1"):
@@ -53,7 +54,7 @@ class SignalFluxWorkflow:
         # 用于筛选的轻量 Agent（不带工具），使用推理模型
         self.filter_agent = Agent(model=self.reasoning_model, markdown=True, debug_mode=True)
         
-        logger.info(f"🚀 SignalFlux Workflow initialized with Dual-Model Routing (ISQ Template: {self.isq_template_id})")
+        logger.info(f"🚀 AlphaEar Workflow initialized with Dual-Model Routing (ISQ Template: {self.isq_template_id})")
     
     def _llm_filter_signals(self, news_list: List[Dict], depth: Union[int, str], query: Optional[str] = None) -> List[Dict]:
         """使用 LLM 智能筛选高价值信号
@@ -413,6 +414,8 @@ class SignalFluxWorkflow:
             result = self.report_agent.generate_report(analyzed_signals, user_query=query)
             report = result
             md_content = report.content if hasattr(report, "content") else str(report)
+            if hasattr(report, "structured"):
+                ckpt.save_json("report_structured.json", report.structured)
             ckpt.save_text("report.md", md_content)
         
         # 保存报告
@@ -435,11 +438,205 @@ class SignalFluxWorkflow:
         ckpt.save_json("state.json", {"run_id": run_id, "status": "completed", "finished_at": datetime.now().isoformat(), "output": md_filename})
         return md_filename
 
+        return md_filename
+        
+    def update_run(
+        self,
+        base_run_id: str,
+        checkpoint_dir: str = "reports/checkpoints",
+        user_query: Optional[str] = None,
+        new_run_id: Optional[str] = None,
+        callback: Optional[Any] = None
+    ) -> Optional[str]:
+        """
+        基于已有 Run 进行更新：
+        1. 读取旧 Run 的 analyzed_signals
+        2. 强制刷新这些信号关联的股价数据 (StockTools force_sync)
+        3. 调用 ReportAgent 生成新报告 (包含 "Update/Comparison" 上下文)
+        
+        Returns:
+            New run_id
+        """
+        # 1. Load base run data
+        if callback:
+            callback.step("system", "System", f"🔍 加载基准运行: {base_run_id}")
+        base_ckpt = CheckpointManager(base_dir=checkpoint_dir, run_id=base_run_id)
+        analyzed_signals = None
+        if base_ckpt.exists("analyzed_signals.json"):
+            analyzed_signals = base_ckpt.load_json("analyzed_signals.json")
+        else:
+            # Fallback: try dashboard DB run_data_json
+            try:
+                from dashboard.db import DashboardDB
+                db = DashboardDB()
+                run_data = db.get_run_data(base_run_id) or {}
+                analyzed_signals = run_data.get("signals")
+                logger.warning(f"⚠️ analyzed_signals.json missing, fallback to dashboard run_data for {base_run_id}")
+                if callback:
+                    callback.step("warning", "System", f"⚠️ 未找到 checkpoint，改用数据库信号 ({len(analyzed_signals or [])})")
+            except Exception as e:
+                logger.error(f"❌ Cannot update run {base_run_id}: analyzed_signals.json not found and DB fallback failed: {e}")
+                if callback:
+                    callback.step("error", "System", f"❌ 无法加载基准信号: {str(e)[:80]}")
+                return None
+        if not analyzed_signals or not isinstance(analyzed_signals, list):
+            logger.error(f"❌ Cannot update run {base_run_id}: analyzed_signals is empty or invalid")
+            return None
+            
+        logger.info(f"🔄 Starting UPDATE for run {base_run_id} (Signals: {len(analyzed_signals)})")
+        if callback:
+            callback.step("system", "System", f"🔄 更新开始，信号数: {len(analyzed_signals)}")
+        
+        # 2. Setup New Run
+        new_run_id = new_run_id or datetime.now().strftime('%Y%m%d_%H%M%S')
+        new_ckpt = CheckpointManager(base_dir=checkpoint_dir, run_id=new_run_id)
+        os.makedirs(new_ckpt.run_dir, exist_ok=True)
+        
+        # Preserve lineage in state
+        new_ckpt.save_json("state.json", {
+            "run_id": new_run_id,
+            "parent_run_id": base_run_id,
+            "status": "running",
+            "type": "update",
+            "started_at": datetime.now().isoformat()
+        })
+        
+        # 3. Force Refresh Stock Data
+        logger.info("📡 Refreshing stock market data for existing signals...")
+        if callback:
+            callback.phase("刷新数据", 30)
+            callback.step("tool_call", "StockTools", "刷新行情数据")
+        stock_tools = StockTools(self.db, auto_update=False)
+        updated_tickers = set()
+        ticker_logged = 0
+        
+        for signal in analyzed_signals:
+            # Extract tickers from signal
+            impact = signal.get('impact_tickers', [])
+            if isinstance(impact, list):
+                for item in impact:
+                    if isinstance(item, dict):
+                        ticker = item.get('ticker')
+                        if ticker and ticker not in updated_tickers:
+                            try:
+                                # Force sync from network
+                                stock_tools.get_stock_price(str(ticker), force_sync=True)
+                                updated_tickers.add(ticker)
+                                logger.debug(f"   Refreshed: {ticker}")
+                                if callback and ticker_logged < 8:
+                                    callback.step("result", "StockTools", f"✅ 刷新: {ticker}")
+                                    ticker_logged += 1
+                            except Exception as e:
+                                logger.warning(f"   Failed to refresh {ticker}: {e}")
+                                if callback and ticker_logged < 8:
+                                    callback.step("warning", "StockTools", f"⚠️ 刷新失败: {ticker}")
+                                    ticker_logged += 1
+        
+        logger.info(f"✅ Market data refreshed for {len(updated_tickers)} tickers.")
+        if callback:
+            callback.step("result", "StockTools", f"✅ 刷新完成: {len(updated_tickers)} 支标的")
+        
+        # 4. Active Signal Evolution (NEW)
+        logger.info("🧠 Executing Logic Evolution Tracking for signals...")
+        if callback:
+            callback.phase("逻辑演变", 50)
+            callback.step("thought", "FinAgent", "开始追踪信号逻辑演变")
+            
+        evolved_signals = []
+        track_count = 0
+        for sig in analyzed_signals:
+            try:
+                # 只追踪有效信号
+                if not sig.get("title"):
+                    continue
+                    
+                logger.info(f"Tracking signal: {sig['title']}")
+                if callback:
+                    callback.step("tool_call", "FinAgent", f"追踪: {sig['title']}")
+                
+                # 调用 FinAgent.track_signal
+                new_sig_obj = self.fin_agent.track_signal(sig)
+                
+                if new_sig_obj:
+                    # 转换回字典
+                    new_sig_dict = new_sig_obj.dict()
+                    # 确保保留一些不可变的元数据（如果需要）
+                    new_sig_dict['sources'] = sig.get('sources', []) + new_sig_dict.get('sources', [])
+                    evolved_signals.append(new_sig_dict)
+                    track_count += 1
+                    logger.info(f"✅ Evolved: {sig['title']} -> Sentiment: {new_sig_dict.get('sentiment_score')}")
+                else:
+                    # 如果追踪失败，保留原信号但标记警告
+                    logger.warning(f"⚠️ Tracking failed for {sig['title']}, keeping original")
+                    evolved_signals.append(sig)
+                    
+            except Exception as e:
+                logger.error(f"Error tracking {sig.get('title')}: {e}")
+                evolved_signals.append(sig)
+
+        logger.info(f"✅ Evolution completed. {track_count}/{len(analyzed_signals)} signals evolved.")
+        if callback:
+            callback.step("result", "FinAgent", f"逻辑演变完成 ({track_count} 个信号更新)")
+
+        # Use evolved signals for report
+        final_signals = evolved_signals if evolved_signals else analyzed_signals
+
+        # 5. Generate Updated Report
+        # Construct a context query that guides the writer to focus on updates
+        update_context = (
+            f"【更新模式】这是一份基于旧版报告（RunID: {base_run_id}）的更新版本。"
+            "分析师已经基于最新市场情况更新了所有信号的【推演逻辑(reasoning)】和【情绪分数】。"
+            "请重点对比新旧逻辑的变化，特别是‘逻辑演变’部分。"
+        )
+        if user_query:
+            update_context += f"\n用户附加指令: {user_query}"
+
+        if callback:
+            callback.phase("报告生成", 80)
+            callback.step("thought", "ReportAgent", "生成演变对比报告")
+        
+        # Reuse ReportAgent with NEW signals
+        result = self.report_agent.generate_report(final_signals, user_query=update_context)
+        report_md = result.content if hasattr(result, "content") else str(result)
+        if hasattr(result, "structured"):
+            new_ckpt.save_json("report_structured.json", result.structured)
+            if callback:
+                callback.step("result", "ReportAgent", "✅ 已生成结构化报告")
+        
+        # 6. Save Artifacts
+        new_ckpt.save_text("report.md", report_md)
+        new_ckpt.save_json("analyzed_signals.json", final_signals) # Save the EVOLVED signals
+        
+        report_dir = "reports"
+        os.makedirs(report_dir, exist_ok=True)
+        
+        # Naming convention: indicate it's an update
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M')
+        md_filename = f"{report_dir}/daily_report_UPDATE_{base_run_id}_{timestamp}.md"
+        
+        with open(md_filename, "w", encoding="utf-8") as f:
+            f.write(report_md)
+            
+        html_filename = save_report_as_html(md_filename)
+        if callback:
+            callback.step("result", "ReportAgent", "📄 报告已生成")
+        
+        new_ckpt.save_json("state.json", {
+            "run_id": new_run_id,
+            "parent_run_id": base_run_id,
+            "status": "completed",
+            "finished_at": datetime.now().isoformat(),
+            "output": html_filename or md_filename
+        })
+        
+        logger.info(f"✅ Update Run Completed: {new_run_id}")
+        return new_run_id
+
 if __name__ == "__main__":
     import sys
     import argparse
     
-    parser = argparse.ArgumentParser(description="SignalFlux Workflow - Investment Signal Analysis")
+    parser = argparse.ArgumentParser(description="AlphaEar Workflow - Investment Signal Analysis")
     parser.add_argument("--template", type=str, default="default_isq_v1", 
                         help="ISQ template ID (default: default_isq_v1)")
     parser.add_argument("--sources", type=str, default="all", 

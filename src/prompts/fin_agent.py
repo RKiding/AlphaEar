@@ -50,6 +50,7 @@ def get_fin_analyst_instructions(template_id: str = "default_isq_v1") -> str:
   - `impact_type`: 影响类型（“利好”、“利空”、“中性”）
   - `logic`: 具体的传导逻辑描述
 - **summary**: 基于分析结果总结核心观点，包含具体数字（如股价目标、预期涨跌幅等）。
+- **reasoning**: 必须详细阐述推演逻辑，解释为什么得出上述结论（<200字）。
 
 ### 4. 输出格式 (严格 JSON 块)
 你必须输出一个符合 InvestmentSignal 结构的 JSON 块，包含所有必需字段。
@@ -93,5 +94,34 @@ def get_fin_analysis_task(signal_text: str, research_context_str: str) -> str:
 3. impact_tickers 中填充具体的公司代码和权重，权重基于事件影响程度
 4. transmission_chain 必须是包含 node_name, impact_type, logic 的对象列表
 5. summary 中包含具体数字（预期目标价、涨跌幅范围等）
+6. reasoning 必须详细解释推演逻辑，不要空泛，要言之有物
 
 请严格按 InvestmentSignal JSON 格式输出。"""
+
+def get_tracking_analysis_task(old_signal: dict, new_research_str: str) -> str:
+    """生成信号追踪更新的任务描述"""
+    import json
+    old_sig_str = json.dumps(old_signal, ensure_ascii=False, indent=2)
+    return f"""你正在执行“信号逻辑演变追踪”任务。请基于最新的市场信息，重新评估之前的投资信号。
+
+=== 基准信号 (上次分析) ===
+{old_sig_str}
+
+=== 最新市场追踪 (NEWS & PRICE) ===
+{new_research_str}
+
+=== 追踪分析要求 ===
+1. **逻辑演变检测**:
+   - 对比新旧信息，判断原逻辑 (`transmission_chain` 和 `reasoning`) 是否依然成立？
+   - 如果逻辑发生变化（如利好落空、逻辑证伪、新利好出现），请在新的 `reasoning` 中明确指出“逻辑演变：...”
+   - 如果逻辑未变且得到验证，请标记“逻辑维持：...”
+
+2. **参数修正**:
+   - 根据最新股价和新闻，更新 `sentiment_score` (情绪)、`confidence` (置信度) 和 `expectation_gap` (预期差)。
+   - 例如：如果股价已经大涨反映了利好，`expectation_gap` 应该显著降低。
+
+3. **输出更新后的信号**:
+   - 保留原 `signal_id` 和 `title`（除非有重大变化需要改名）。
+   - 输出完整的 InvestmentSignal JSON。
+
+请重点关注：为什么变了？还是为什么没变？理由要充分。"""

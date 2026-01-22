@@ -26,6 +26,7 @@ class InvestmentSignal(BaseModel):
     signal_id: str = Field(default="unknown_sig", description="唯一信号 ID")
     title: str = Field(..., description="信号标题")
     summary: str = Field(default="暂无摘要分析", description="100 字核心观点快报")
+    reasoning: str = Field(default="", description="详细的推演逻辑和理由")
     
     # 逻辑传导 (ISQ Key 1)
     transmission_chain: List[TransmissionNode] = Field(default_factory=list, description="产业链传导逻辑链条")
