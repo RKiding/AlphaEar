@@ -1,17 +1,18 @@
 import { useDashboardStore } from '../store'
 import { useEffect, useRef } from 'react'
+import { Terminal, CheckCircle, XCircle, Bot, ChevronLeft, ChevronRight } from 'lucide-react'
 import './ConsolePanel.css'
 
 export function ConsolePanel() {
-    const { steps, phase, progress, status } = useDashboardStore()
+    const { steps, phase, progress, status, consoleCollapsed, setConsoleCollapsed } = useDashboardStore()
     const consoleRef = useRef<HTMLDivElement>(null)
 
     // 自动滚动到底部
     useEffect(() => {
-        if (consoleRef.current) {
+        if (consoleRef.current && !consoleCollapsed) {
             consoleRef.current.scrollTop = consoleRef.current.scrollHeight
         }
-    }, [steps])
+    }, [steps, consoleCollapsed])
 
     const getStepClass = (stepType: string) => {
         switch (stepType) {
@@ -37,13 +38,32 @@ export function ConsolePanel() {
         }
     }
 
+    // Collapsed state - vertical sidebar
+    if (consoleCollapsed) {
+        return (
+            <div className="console-panel collapsed" onClick={() => setConsoleCollapsed(false)}>
+                <div className="collapsed-sidebar">
+                    <ChevronRight size={16} className="expand-icon" />
+                    <Terminal size={14} />
+                    <span className="vertical-title">Agent Console</span>
+                    <span className={`status-dot ${status}`} />
+                </div>
+            </div>
+        )
+    }
+
     return (
         <div className="console-panel">
-            <div className="console-header">
-                <span className="console-title">🖥️ Agent Console</span>
-                <span className="console-status" data-status={status}>
-                    {status === 'running' ? phase : status === 'completed' ? '✅ 完成' : status === 'failed' ? '❌ 失败' : '等待开始'}
-                </span>
+            <div className="console-header" onClick={() => setConsoleCollapsed(true)}>
+                <span className="console-title"><Terminal size={14} />Agent Console</span>
+                <div className="header-right">
+                    <span className="console-status" data-status={status}>
+                        {status === 'running' ? phase : status === 'completed' ? <><CheckCircle size={12} /> 完成</> : status === 'failed' ? <><XCircle size={12} /> 失败</> : '等待开始'}
+                    </span>
+                    <span className="collapse-toggle">
+                        <ChevronLeft size={14} />
+                    </span>
+                </div>
             </div>
 
             <div className="progress-bar">
@@ -56,7 +76,7 @@ export function ConsolePanel() {
             <div className="console-content" ref={consoleRef}>
                 {steps.length === 0 ? (
                     <div className="console-empty">
-                        <div className="empty-icon">🤖</div>
+                        <div className="empty-icon"><Bot size={40} /></div>
                         <div>输入查询并点击开始分析</div>
                     </div>
                 ) : (

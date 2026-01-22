@@ -34,6 +34,7 @@ export function useWebSocket() {
             setConnected(true)
 
             // 请求初始数据
+            ws.send(JSON.stringify({ command: 'get_status' }))  // 同步当前运行状态
             ws.send(JSON.stringify({ command: 'get_history' }))
             ws.send(JSON.stringify({ command: 'get_query_groups' }))
         }
@@ -66,14 +67,39 @@ export function useWebSocket() {
     const handleMessage = (msg: { type: string; data: any }) => {
         switch (msg.type) {
             case 'init':
-                if (msg.data.run_id && msg.data.status === 'running') {
+                // 同步后端当前状态
+                const isActuallyRunning = msg.data.is_running === true
+
+                if (isActuallyRunning && msg.data.run_id) {
                     setRunning(msg.data.run_id)
+                    // 恢复进度
+                    if (msg.data.phase !== undefined && msg.data.progress !== undefined) {
+                        updateProgress(msg.data.phase, msg.data.progress)
+                    }
+                    // 恢复步骤
                     msg.data.steps?.forEach((step: any) => addStep(step))
+                    // 恢复信号
                     msg.data.signals?.forEach((signal: any) => addSignal(signal))
-                    Object.entries(msg.data.charts || {}).forEach(([ticker, data]) => {
-                        updateChart(ticker, data as any)
+                    // 恢复图表 - with validation
+                    Object.entries(msg.data.charts || {}).forEach(([ticker, chartData]) => {
+                        const chart = chartData as any
+                        // Only update if chart has valid prices array
+                        if (chart && chart.prices && Array.isArray(chart.prices) && chart.prices.length > 0) {
+                            updateChart(ticker, chart)
+                        } else {
+                            console.warn(`Skipping invalid chart data for ${ticker}:`, chart)
+                        }
                     })
+                    // 恢复传导图
                     if (msg.data.graph) updateGraph(msg.data.graph)
+                    console.log('📡 Synced running state from backend:', msg.data.run_id)
+                } else if (msg.data.status === 'completed' && msg.data.run_id) {
+                    // 后端显示已完成
+                    setCompleted()
+                    console.log('📡 Backend reports completed state')
+                } else {
+                    // 后端实际未运行，重置到 idle 状态
+                    console.log('📡 Backend is idle, resetting frontend state')
                 }
                 break
 
@@ -90,7 +116,12 @@ export function useWebSocket() {
                 break
 
             case 'chart':
-                updateChart(msg.data.ticker, msg.data)
+                // Validate chart data before updating
+                if (msg.data && msg.data.ticker && msg.data.prices && Array.isArray(msg.data.prices) && msg.data.prices.length > 0) {
+                    updateChart(msg.data.ticker, msg.data)
+                } else {
+                    console.warn('Received invalid chart data:', msg.data)
+                }
                 break
 
             case 'graph':
@@ -104,7 +135,7 @@ export function useWebSocket() {
                 wsRef.current?.send(JSON.stringify({ command: 'get_query_groups' }))
                 // 浏览器通知
                 if (Notification.permission === 'granted') {
-                    new Notification('SignalFlux 分析完成', {
+                    new Notification('AlphaEar 分析完成', {
                         body: `发现 ${msg.data.signal_count} 个信号`,
                         icon: '/favicon.ico'
                     })
@@ -113,6 +144,16 @@ export function useWebSocket() {
 
             case 'error':
                 setFailed(msg.data.message)
+                break
+
+            case 'status':
+                // Handle status updates from backend (e.g., cancel, reset)
+                if (msg.data.status === 'idle' || msg.data.status === 'cancelled') {
+                    setCompleted()  // This resets status to idle
+                } else if (msg.data.status === 'cancelling') {
+                    // Keep the running state but could show a cancelling indicator
+                    console.log('⚠️ Workflow cancelling...')
+                }
                 break
 
             case 'history':

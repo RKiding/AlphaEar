@@ -1,9 +1,10 @@
+/* ConsolePanel - Fintech Design */
 .console-panel {
   display: flex;
   flex-direction: column;
-  background: #1a1d23;
+  background: var(--bg-secondary, #1E293B);
   border-radius: 12px;
-  border: 1px solid #2d3139;
+  border: 1px solid var(--border-primary, #334155);
   overflow: hidden;
   height: 100%;
 }
@@ -12,56 +13,170 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 12px 16px;
-  background: #21252b;
-  border-bottom: 1px solid #2d3139;
+  padding: 14px 16px;
+  background: var(--bg-primary, #0F172A);
+  border-bottom: 1px solid var(--border-primary, #334155);
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.console-header:hover {
+  background: rgba(139, 92, 246, 0.05);
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.collapse-toggle {
+  color: var(--text-muted, #64748B);
+  display: flex;
+  align-items: center;
+  transition: color 0.2s ease;
+}
+
+.console-header:hover .collapse-toggle {
+  color: var(--color-cta, #8B5CF6);
+}
+
+/* Collapsed state - vertical sidebar */
+.console-panel.collapsed {
+  height: 100%;
+  width: 48px;
+  min-width: 48px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.console-panel.collapsed:hover {
+  background: rgba(139, 92, 246, 0.05);
+  border-color: rgba(139, 92, 246, 0.3);
+}
+
+.console-panel.collapsed .console-header {
+  display: none;
+}
+
+.collapsed-sidebar {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 12px;
+  padding: 14px 0;
+  height: 100%;
+}
+
+.collapsed-sidebar .expand-icon {
+  color: var(--color-cta, #8B5CF6);
+  margin-bottom: 4px;
+}
+
+.collapsed-sidebar .vertical-title {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  font-family: var(--font-heading, 'Poppins', sans-serif);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary, #94A3B8);
+  letter-spacing: 0.5px;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-muted, #64748B);
+  margin-top: auto;
+  margin-bottom: 8px;
+}
+
+.status-dot.running {
+  background: #8B5CF6;
+  animation: pulse 1.5s infinite;
+}
+
+.status-dot.completed {
+  background: #10B981;
+}
+
+.status-dot.failed {
+  background: #EF4444;
+}
+
+@keyframes pulse {
+
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.4;
+  }
 }
 
 .console-title {
+  font-family: var(--font-heading, 'Poppins', sans-serif);
+  font-size: 14px;
   font-weight: 600;
-  color: #e1e4e8;
+  color: var(--text-primary, #F8FAFC);
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .console-status {
-  font-size: 13px;
-  padding: 4px 10px;
-  border-radius: 12px;
-  background: #2d3139;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 5px 12px;
+  border-radius: 14px;
+  background: var(--bg-tertiary, #334155);
+  color: var(--text-secondary, #94A3B8);
 }
 
 .console-status[data-status="running"] {
-  background: #1e3a5f;
-  color: #4fc3f7;
+  background: rgba(139, 92, 246, 0.15);
+  color: #A78BFA;
 }
 
 .console-status[data-status="completed"] {
-  background: #1e3a2e;
-  color: #81c784;
+  background: rgba(16, 185, 129, 0.15);
+  color: #10B981;
 }
 
 .console-status[data-status="failed"] {
-  background: #3f1e1e;
-  color: #e57373;
+  background: rgba(239, 68, 68, 0.15);
+  color: #EF4444;
 }
 
-.progress-bar {
-  height: 3px;
-  background: #2d3139;
+.console-panel .progress-bar {
+  height: 2px !important;
+  max-height: 2px !important;
+  min-height: 2px;
+  flex-shrink: 0;
+  flex-grow: 0;
+  background: var(--bg-tertiary, #334155);
 }
 
-.progress-fill {
+.console-panel .progress-fill {
   height: 100%;
-  background: linear-gradient(90deg, #4fc3f7, #29b6f6);
+  background: linear-gradient(90deg, var(--color-cta, #8B5CF6), var(--color-primary, #F59E0B));
   transition: width 0.3s ease;
 }
 
 .console-content {
   flex: 1;
   overflow-y: auto;
-  padding: 12px;
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
-  font-size: 13px;
-  line-height: 1.6;
+  padding: 14px;
+  font-family: var(--font-mono, 'SF Mono', monospace);
+  font-size: 12px;
+  line-height: 1.7;
+  background: var(--bg-secondary, #1E293B) !important;
+  position: relative;
+  z-index: 1;
 }
 
 .console-empty {
@@ -70,51 +185,84 @@
   align-items: center;
   justify-content: center;
   height: 100%;
-  color: #6b7280;
+  color: var(--text-muted, #64748B);
+  font-size: 13px;
+  background: var(--bg-secondary, #1E293B);
 }
 
 .empty-icon {
-  font-size: 48px;
+  font-size: 40px;
   margin-bottom: 12px;
+  opacity: 0.4;
 }
 
 .console-step {
   display: flex;
   gap: 12px;
-  padding: 4px 0;
-  border-bottom: 1px solid #21252b;
+  padding: 6px 0;
+  border-bottom: 1px solid rgba(51, 65, 85, 0.5);
 }
 
 .step-time {
-  color: #6b7280;
-  font-size: 11px;
-  min-width: 70px;
+  color: var(--text-muted, #64748B);
+  font-size: 10px;
+  min-width: 65px;
+  font-family: var(--font-mono, monospace);
 }
 
 .step-agent {
   font-weight: 600;
-  min-width: 100px;
+  font-size: 11px;
+  min-width: 90px;
+  color: var(--color-primary, #F59E0B);
 }
 
 .step-content {
-  color: #c9d1d9;
+  color: var(--text-secondary, #94A3B8);
   flex: 1;
   word-break: break-word;
 }
 
-.step-error .step-content { color: #e57373; }
-.step-warning .step-content { color: #ffb74d; }
-.step-result .step-content { color: #81c784; }
-.step-signal .step-content { color: #ba68c8; }
-.step-tool .step-content { color: #4fc3f7; }
-.step-thought .step-content { color: #90a4ae; font-style: italic; }
-.step-phase { 
-  background: #21252b; 
-  padding: 8px 12px;
-  margin: 8px -12px;
-  border-radius: 4px;
+/* Step Types */
+.step-error .step-content {
+  color: #EF4444;
 }
-.step-phase .step-content { 
-  color: #e1e4e8; 
+
+.step-warning .step-content {
+  color: #F59E0B;
+}
+
+.step-result .step-content {
+  color: #10B981;
+}
+
+.step-signal .step-content {
+  color: #A78BFA;
+}
+
+.step-tool .step-content {
+  color: #38BDF8;
+}
+
+.step-thought .step-content {
+  color: var(--text-muted, #64748B);
+  font-style: italic;
+}
+
+.step-phase {
+  background: var(--bg-primary, #0F172A);
+  padding: 10px 14px;
+  margin: 8px -14px;
+  border-radius: 6px;
+  border-left: 3px solid var(--color-cta, #8B5CF6);
+}
+
+.step-phase .step-content {
+  color: var(--text-primary, #F8FAFC);
   font-weight: 600;
+  font-family: var(--font-heading, 'Poppins', sans-serif);
+}
+
+.step-phase .step-agent {
+  color: var(--color-cta, #8B5CF6);
 }
