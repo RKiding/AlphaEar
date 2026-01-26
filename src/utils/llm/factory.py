@@ -53,6 +53,33 @@ def get_model(model_provider: str, model_id: str, **kwargs):
             api_key=api_key,
             **kwargs
         )
+
+    elif model_provider == 'zai':
+        api_key = os.getenv("ZAI_KEY_API")
+        if not api_key:
+            print('Warning: ZAI_KEY_API not set.')
+
+        # role_map to ensure compatibility.
+        default_role_map = {
+            "system": "system",
+            "user": "user",
+            "assistant": "assistant",
+            "tool": "tool",
+            "model": "assistant",
+        }
+
+        # Allow callers to override role_map via kwargs, otherwise use default
+        role_map = kwargs.pop("role_map", default_role_map)
+        
+        return OpenAIChat(
+            id=model_id,
+            base_url="https://api.z.ai/api/paas/v4",
+            api_key=api_key,
+            timeout=60,
+            role_map=role_map,
+            extra_body={"enable_thinking": False}, # TODO: one more setting for thinking
+            **kwargs
+        )
     
     elif model_provider == 'ust':
         api_key = os.getenv("UST_KEY_API")
