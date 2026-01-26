@@ -1,6 +1,6 @@
 import { useDashboardStore, type HistoryItem } from '../store'
 import { useState } from 'react'
-import { Clock, RotateCcw, Trash2, ChevronDown, ChevronRight, GitBranch, History, Check, X, Ban, Loader2 } from 'lucide-react'
+import { Clock, RotateCcw, Trash2, ChevronDown, ChevronRight, GitBranch, History, Check, X, Ban, Loader2, Link2 } from 'lucide-react'
 import './HistoryPanel.css'
 
 interface Props {
@@ -165,10 +165,17 @@ function HistoryRow({
     // Actually we need to add parent_run_id to store.ts/HistoryItem first.
     // Assuming backend returns it.
 
+    const isTrackedUpdate = !!item.parent_run_id
+
     return (
-        <div className="history-row" onClick={() => onSelect(item.run_id)}>
+        <div className={`history-row ${isTrackedUpdate ? 'tracked-update' : ''}`} onClick={() => onSelect(item.run_id)}>
             <div className="row-main">
                 {getStatusBadge(item.status)}
+                {isTrackedUpdate && (
+                    <span className="tracked-icon" title="追踪更新 (有对比)">
+                        <Link2 size={12} />
+                    </span>
+                )}
                 <div className="row-info">
                     {showQuery && <div className="row-query">{item.query || '自动扫描'}</div>}
                     <div className="row-meta">
@@ -187,10 +194,10 @@ function HistoryRow({
                 </div>
             </div>
             <div className="row-actions" onClick={(e) => e.stopPropagation()}>
-                <button className="action-btn" onClick={() => onUpdate(item.run_id)} title="基于此版本更新">
+                <button className="action-btn update-btn" onClick={() => onUpdate(item.run_id)} title="追踪更新 (保留信号演变对比)">
                     <GitBranch size={14} />
                 </button>
-                <button className="action-btn" onClick={() => onRerun(item.run_id)} title="重新运行">
+                <button className="action-btn rerun-btn" onClick={() => onRerun(item.run_id)} title="重新采集 (全新运行同一主题)">
                     <RotateCcw size={14} />
                 </button>
                 <button

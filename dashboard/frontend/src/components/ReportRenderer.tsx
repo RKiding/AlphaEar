@@ -1,25 +1,9 @@
 import { useMemo, useState } from 'react'
-import type { Signal, ChartData } from '../store'
+import type { RunData } from '../types/RunData'
 import { SignalCard } from './SignalCard'
 import { KLineChart } from './KLineChart'
 import { BarChart3, Target, TrendingUp, GitMerge, ChevronDown, ChevronRight, List, Info, Sparkles, FileText } from 'lucide-react'
 import './ReportRenderer.css'
-
-interface RunData {
-    run_id: string
-    signals: Signal[]
-    charts: Record<string, ChartData>
-    graph: { nodes: any[]; edges: any[] }
-    report_path?: string
-    report_content?: string
-    report_structured?: {
-        title?: string
-        summary_bullets?: string[]
-        sections?: Array<{ title: string; content: string }>
-        clusters?: Array<{ title: string; rationale?: string; signal_ids?: number[]; signals?: any[] }>
-        signals?: any[]
-    }
-}
 
 interface Props {
     data: RunData

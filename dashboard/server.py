@@ -351,6 +351,75 @@ async def get_hot_news(sources: str = "cls,wallstreetcn,xueqiu", count: int = 8)
     }
 
 
+@app.post("/api/suggest-queries")
+async def suggest_queries(request: dict):
+    """使用 LLM 根据新闻标题生成 10 个候选 Query 供用户选择"""
+    news_title = request.get("title", "")
+    if not news_title:
+        raise HTTPException(400, "需要提供新闻标题")
+    
+    try:
+        import os
+        from utils.llm.factory import get_model
+        from agno.agent import Agent
+        
+        # Get model config from environment
+        provider = os.getenv("LLM_PROVIDER", "deepseek")
+        model_id = os.getenv("LLM_MODEL", "deepseek-chat")
+        llm = get_model(provider, model_id)
+        agent = Agent(model=llm, markdown=False)
+        
+        prompt = f"""你是一位金融分析专家。基于以下新闻标题，生成 10 个不同角度的分析查询（Query）。
+这些 Query 将用于驱动金融信号分析系统，需要覆盖不同的分析维度。
+
+新闻标题：{news_title}
+
+请生成 10 个查询，每个查询应该：
+1. 从不同角度切入（如：行业影响、个股机会、风险警示、宏观关联等）
+2. 简洁明确，适合作为分析任务的输入
+3. 覆盖短期和中长期视角
+
+请按以下 JSON 格式返回，只返回 JSON 数组，不要其他内容：
+["查询1", "查询2", ...]"""
+
+        response = agent.run(prompt)
+        content = response.content if hasattr(response, 'content') else str(response)
+        
+        # Parse JSON from response
+        import re
+        json_match = re.search(r'\[.*\]', content, re.DOTALL)
+        if json_match:
+            queries = json.loads(json_match.group())
+            # Allow up to 10, but accept fewer
+            queries = [q for q in queries if isinstance(q, str) and q.strip()][:10]
+        else:
+            # Fallback: split by lines and clean
+            queries = [line.strip().strip('"').strip("'") for line in content.split('\n') if line.strip()]
+            queries = [q for q in queries if q and not q.startswith('[') and not q.startswith(']')][:10]
+        
+        # If no valid queries parsed, add the original title as fallback
+        if not queries:
+            queries = [news_title]
+        
+        return {
+            "title": news_title,
+            "suggestions": queries
+        }
+    except Exception as e:
+        logger.error(f"Query suggestion failed: {e}")
+        # Fallback: return basic variations
+        return {
+            "title": news_title,
+            "suggestions": [
+                f"{news_title} 对A股的影响",
+                f"{news_title} 相关概念股",
+                f"{news_title} 投资机会分析",
+                f"{news_title} 风险提示",
+                f"{news_title} 行业影响",
+                news_title
+            ]
+        }
+
 @app.get("/api/run/{run_id}")
 async def get_run(run_id: str):
     """获取运行详情"""

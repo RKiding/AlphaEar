@@ -301,3 +301,33 @@
     color: #10B981;
     border-color: rgba(16, 185, 129, 0.3);
 }
+/* Tracked Update Row */
+.history-row.tracked-update {
+    border-left: 3px solid #8B5CF6;
+    background: rgba(139, 92, 246, 0.03);
+}
+
+.tracked-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    background: rgba(139, 92, 246, 0.2);
+    color: #A78BFA;
+    border-radius: 4px;
+    flex-shrink: 0;
+}
+
+/* Update vs Rerun Button Styling */
+.action-btn.update-btn:hover {
+    background: rgba(139, 92, 246, 0.15);
+    color: #A78BFA;
+    border-color: rgba(139, 92, 246, 0.3);
+}
+
+.action-btn.rerun-btn:hover {
+    background: rgba(245, 158, 11, 0.15);
+    color: #F59E0B;
+    border-color: rgba(245, 158, 11, 0.3);
+}

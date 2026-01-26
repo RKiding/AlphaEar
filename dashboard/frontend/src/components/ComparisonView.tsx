@@ -1,29 +1,14 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState, useMemo } from 'react'
 import * as echarts from 'echarts'
-import type { Signal, ChartData } from '../store'
+import type { ChartData } from '../store'
+import type { RunData, SignalDelta } from '../types/RunData'
 import { KLineChart } from './KLineChart'
-import { GitCompare, TrendingUp, Plus, X, RefreshCw, ArrowRight } from 'lucide-react'
+import { GitCompare, TrendingUp, Plus, X, RefreshCw, ArrowRight, Filter, CheckCircle2 } from 'lucide-react'
 import './ComparisonView.css'
-
-interface RunData {
-    run_id: string
-    signals: Signal[]
-    charts: Record<string, ChartData>
-    graph: { nodes: any[]; edges: any[] }
-}
 
 interface Props {
     oldRun: RunData
     newRun: RunData
-}
-
-interface SignalDelta {
-    signal: Signal
-    oldSignal?: Signal
-    sentiment_delta?: number
-    confidence_delta?: number
-    intensity_delta?: number
-    status: 'new' | 'removed' | 'changed' | 'unchanged'
 }
 
 export function ComparisonView({ oldRun, newRun }: Props) {
@@ -67,7 +52,22 @@ export function ComparisonView({ oldRun, newRun }: Props) {
         }
     })
 
-    // 找出共同的 ticker
+    // Summary stats
+    const stats = useMemo(() => ({
+        new: signalDeltas.filter(d => d.status === 'new').length,
+        changed: signalDeltas.filter(d => d.status === 'changed').length,
+        unchanged: signalDeltas.filter(d => d.status === 'unchanged').length,
+        removed: signalDeltas.filter(d => d.status === 'removed').length,
+        total: signalDeltas.length
+    }), [signalDeltas])
+
+    // Filter state
+    const [filter, setFilter] = useState<'all' | 'new' | 'changed' | 'removed'>('all')
+    const filteredDeltas = filter === 'all'
+        ? signalDeltas
+        : signalDeltas.filter(d => d.status === filter)
+
+    // All tickers for chart lookup
     const allTickers = new Set([
         ...Object.keys(oldRun.charts),
         ...Object.keys(newRun.charts)
@@ -151,12 +151,47 @@ export function ComparisonView({ oldRun, newRun }: Props) {
                 <div className="run-labels">
                     <span className="old-run">基准: {oldRun.run_id}</span>
                     <ArrowRight size={14} className="arrow" />
-                    <span className="new-run">更新: {newRun.run_id}</span>
+                    <span className="new-run">追踪: {newRun.run_id}</span>
                 </div>
             </div>
 
+            {/* Summary Stats */}
+            <div className="comparison-summary">
+                <div className="summary-stats">
+                    <div className="stat-item total">
+                        <span className="stat-value">{stats.total}</span>
+                        <span className="stat-label">总信号</span>
+                    </div>
+                    <div className={`stat-item new ${filter === 'new' ? 'active' : ''}`} onClick={() => setFilter(filter === 'new' ? 'all' : 'new')}>
+                        <Plus size={14} />
+                        <span className="stat-value">{stats.new}</span>
+                        <span className="stat-label">新增</span>
+                    </div>
+                    <div className={`stat-item changed ${filter === 'changed' ? 'active' : ''}`} onClick={() => setFilter(filter === 'changed' ? 'all' : 'changed')}>
+                        <RefreshCw size={14} />
+                        <span className="stat-value">{stats.changed}</span>
+                        <span className="stat-label">演变</span>
+                    </div>
+                    <div className="stat-item unchanged">
+                        <CheckCircle2 size={14} />
+                        <span className="stat-value">{stats.unchanged}</span>
+                        <span className="stat-label">维持</span>
+                    </div>
+                    <div className={`stat-item removed ${filter === 'removed' ? 'active' : ''}`} onClick={() => setFilter(filter === 'removed' ? 'all' : 'removed')}>
+                        <X size={14} />
+                        <span className="stat-value">{stats.removed}</span>
+                        <span className="stat-label">移除</span>
+                    </div>
+                </div>
+                {filter !== 'all' && (
+                    <button className="clear-filter" onClick={() => setFilter('all')}>
+                        <Filter size={12} /> 显示全部
+                    </button>
+                )}
+            </div>
+
             <div className="signal-comparison-list">
-                {signalDeltas.map((delta, i) => {
+                {filteredDeltas.map((delta, i) => {
                     const isNew = delta.status === 'new'
                     const isRemoved = delta.status === 'removed'
                     const isUnchanged = delta.status === 'unchanged'

@@ -757,3 +757,105 @@
     height: 280px;
     /* Slightly shorter for embedded view */
 }
+/* New Summary Stats Bar */
+.comparison-summary {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 24px;
+    padding: 16px 20px;
+    background: var(--bg-primary, #0F172A);
+    border-radius: 10px;
+    border: 1px solid var(--border-primary, #334155);
+}
+
+.summary-stats {
+    display: flex;
+    gap: 12px;
+}
+
+.stat-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    border-radius: 8px;
+    font-size: 13px;
+    color: var(--text-secondary, #94A3B8);
+    background: var(--bg-secondary, #1E293B);
+    transition: all 0.15s ease;
+}
+
+.stat-item.new, .stat-item.changed, .stat-item.removed {
+    cursor: pointer;
+}
+
+.stat-item:hover:not(.total):not(.unchanged) {
+    transform: translateY(-1px);
+}
+
+.stat-item.active {
+    border: 1px solid currentColor;
+}
+
+.stat-item.total {
+    background: var(--bg-tertiary, #334155);
+    font-weight: 600;
+}
+
+.stat-item.new {
+    color: #10B981;
+}
+
+.stat-item.new.active {
+    background: rgba(16, 185, 129, 0.15);
+}
+
+.stat-item.changed {
+    color: #F59E0B;
+}
+
+.stat-item.changed.active {
+    background: rgba(245, 158, 11, 0.15);
+}
+
+.stat-item.unchanged {
+    color: #64748B;
+}
+
+.stat-item.removed {
+    color: #EF4444;
+}
+
+.stat-item.removed.active {
+    background: rgba(239, 68, 68, 0.15);
+}
+
+.stat-value {
+    font-weight: 600;
+    font-size: 14px;
+}
+
+.stat-label {
+    font-size: 11px;
+    opacity: 0.8;
+}
+
+.clear-filter {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 14px;
+    background: var(--bg-tertiary, #334155);
+    border: 1px solid var(--border-primary, #334155);
+    border-radius: 6px;
+    color: var(--text-secondary, #94A3B8);
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.clear-filter:hover {
+    background: var(--bg-card-hover, #2D3B4F);
+    color: var(--text-primary, #F8FAFC);
+}

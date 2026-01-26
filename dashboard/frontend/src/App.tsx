@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useDashboardStore } from './store'
 import { useWebSocket } from './useWebSocket'
 import { ConsolePanel } from './components/ConsolePanel'
@@ -11,22 +11,8 @@ import { ComparisonView } from './components/ComparisonView'
 import { ReportRenderer } from './components/ReportRenderer'
 import { PhaseIndicator } from './components/PhaseIndicator'
 import { ChartModal } from './components/ChartModal'
+import type { RunData } from './types/RunData'
 import './App.css'
-
-interface RunData {
-  run_id: string
-  signals: any[]
-  charts: Record<string, any>
-  graph: { nodes: any[]; edges: any[] }
-  report_path?: string
-  report_content?: string
-  report_structured?: {
-    title?: string
-    summary_bullets?: string[]
-    sections?: Array<{ title: string; content: string }>
-    clusters?: Array<{ title: string; rationale?: string; signal_ids?: number[]; signals?: any[] }>
-  }
-}
 
 const API_BASE = import.meta.env.DEV ? 'http://localhost:8765' : ''
 
@@ -107,21 +93,24 @@ function App() {
     return selectedSources
   }
 
-  // Fetch structured run data for rendering
-  const fetchRunData = async (runId: string) => {
+  // Fetch structured run data for rendering - wrapped in useCallback to fix stale closures
+  const fetchRunData = useCallback(async (runIdToFetch: string) => {
     try {
-      const res = await fetch(`${API_BASE}/api/run/${runId}/data`)
+      const res = await fetch(`${API_BASE}/api/run/${runIdToFetch}/data`)
       if (res.ok) {
         const data = await res.json()
         setCurrentRunData(data)
 
         // Also fetch parent run data if exists
-        const run = history.find(r => r.run_id === runId)
+        const latestHistory = useDashboardStore.getState().history
+        const run = latestHistory.find(r => r.run_id === runIdToFetch)
         if (run?.parent_run_id) {
           const parentRes = await fetch(`${API_BASE}/api/run/${run.parent_run_id}/data`)
           if (parentRes.ok) {
             setParentRunData(await parentRes.json())
           }
+          // Auto-switch to comparison view when loading a tracked update
+          setViewMode('comparison')
         } else {
           setParentRunData(null)
         }
@@ -129,7 +118,7 @@ function App() {
     } catch (e) {
       console.error('Failed to fetch run data:', e)
     }
-  }
+  }, [])
 
   const handleStartRun = async () => {
     if (loading || status === 'running') return
@@ -245,7 +234,7 @@ function App() {
 
     if (!effectiveRunId) return
     fetchRunData(effectiveRunId)
-  }, [status, effectiveRunId])
+  }, [status, effectiveRunId, fetchRunData])
 
   return (
     <div className="app">

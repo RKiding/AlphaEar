@@ -134,3 +134,151 @@
   padding: 8px 0;
   text-align: center;
 }
+
+/* Suggestions Modal */
+.suggestions-modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    backdrop-filter: blur(4px);
+}
+
+.suggestions-modal {
+    background: var(--bg-secondary, #1E293B);
+    border: 1px solid var(--border-primary, #334155);
+    border-radius: 16px;
+    width: 90%;
+    max-width: 500px;
+    max-height: 80vh;
+    overflow: hidden;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border-primary, #334155);
+    background: var(--bg-primary, #0F172A);
+}
+
+.modal-header h3 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--color-primary, #F59E0B);
+}
+
+.close-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-muted, #64748B);
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 4px;
+    transition: all 0.15s ease;
+}
+
+.close-btn:hover {
+    background: var(--bg-tertiary, #334155);
+    color: var(--text-primary, #F8FAFC);
+}
+
+.modal-news-title {
+    padding: 14px 20px;
+    font-size: 13px;
+    color: var(--text-secondary, #94A3B8);
+    background: rgba(139, 92, 246, 0.05);
+    border-bottom: 1px solid var(--border-primary, #334155);
+}
+
+.suggestions-list {
+    padding: 12px;
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.suggestions-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    padding: 40px 20px;
+    color: var(--text-muted, #64748B);
+}
+
+.suggestions-empty {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--text-muted, #64748B);
+}
+
+.suggestion-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    width: 100%;
+    padding: 12px 14px;
+    margin-bottom: 8px;
+    background: var(--bg-primary, #0F172A);
+    border: 1px solid transparent;
+    border-radius: 10px;
+    cursor: pointer;
+    text-align: left;
+    transition: all 0.15s ease;
+}
+
+.suggestion-item:hover {
+    background: rgba(139, 92, 246, 0.1);
+    border-color: rgba(139, 92, 246, 0.3);
+    transform: translateX(4px);
+}
+
+.suggestion-num {
+    flex-shrink: 0;
+    width: 22px;
+    height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg-tertiary, #334155);
+    color: var(--text-muted, #64748B);
+    border-radius: 50%;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.suggestion-item:hover .suggestion-num {
+    background: var(--color-primary, #F59E0B);
+    color: white;
+}
+
+.suggestion-text {
+    flex: 1;
+    font-size: 13px;
+    color: var(--text-primary, #F8FAFC);
+    line-height: 1.4;
+}
+
+/* Insight button styling */
+.insight-btn {
+    background: rgba(245, 158, 11, 0.1) !important;
+    color: #F59E0B !important;
+    border: 1px solid rgba(245, 158, 11, 0.2) !important;
+}
+
+.insight-btn:hover {
+    background: rgba(245, 158, 11, 0.2) !important;
+    border-color: rgba(245, 158, 11, 0.4) !important;
+}
