@@ -100,6 +100,30 @@ export function SignalCard({ signal, onShowChart }: Props) {
                     ))}
                 </div>
             )}
+
+            {/* Signal Sources References */}
+            {signal.sources && signal.sources.length > 0 && (
+                <div className="signal-sources">
+                    <div className="sources-label">相关报道 / 来源</div>
+                    <div className="sources-list">
+                        {signal.sources.map((src, i) => (
+                            <a
+                                key={i}
+                                href={src.url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="source-link"
+                                onClick={(e) => e.stopPropagation()}
+                            >
+                                {src.source_name && (
+                                    <span className="source-tag">{src.source_name}</span>
+                                )}
+                                <span className="source-text">{src.title}</span>
+                            </a>
+                        ))}
+                    </div>
+                </div>
+            )}
         </div>
     )
 }

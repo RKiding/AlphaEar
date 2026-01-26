@@ -238,3 +238,225 @@
     background: var(--bg-tertiary, #334155);
     color: var(--text-secondary, #94A3B8);
 }
+
+/* Signal Sources */
+.signal-sources {
+    margin-top: 14px;
+    padding: 14px;
+    background: var(--bg-primary, #0F172A);
+    border-radius: 10px;
+    border: 1px solid var(--border-primary, #334155);
+}
+
+.signal-sources .sources-label {
+    display: block;
+    font-size: 10px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted, #64748B);
+    margin-bottom: 10px;
+}
+
+.sources-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.source-link {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    background: var(--bg-secondary, #1E293B);
+    border: 1px solid var(--border-primary, #334155);
+    border-radius: 8px;
+    text-decoration: none;
+    transition: all 0.2s ease;
+}
+
+.source-link:hover {
+    background: var(--bg-card-hover, #2D3B4F);
+    border-color: rgba(139, 92, 246, 0.4);
+    transform: translateX(4px);
+}
+
+.source-tag {
+    flex-shrink: 0;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 4px 8px;
+    background: rgba(139, 92, 246, 0.15);
+    color: #A78BFA;
+    border-radius: 4px;
+    border: 1px solid rgba(139, 92, 246, 0.2);
+}
+
+.source-text {
+    flex: 1;
+    font-size: 12px;
+    color: var(--text-secondary, #94A3B8);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    line-height: 1.4;
+}
+
+.source-link:hover .source-text {
+    color: var(--text-primary, #F8FAFC);
+}
+
+/* Improved Signal Sources UI */
+.signal-sources {
+    margin-top: 16px;
+    padding: 12px 16px;
+    background: rgba(15, 23, 42, 0.3);
+    border-radius: 8px;
+    border: 1px solid rgba(51, 65, 85, 0.5);
+}
+
+.sources-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+    margin-bottom: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.sources-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.source-link {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    background: transparent;
+    border-radius: 6px;
+    text-decoration: none;
+    transition: all 0.2s ease;
+    border: 1px solid transparent;
+}
+
+.source-link:hover {
+    background: rgba(30, 41, 59, 0.5);
+    border-color: rgba(139, 92, 246, 0.2);
+    transform: translateX(2px);
+}
+
+.source-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    background: rgba(148, 163, 184, 0.1);
+    border-radius: 4px;
+    color: var(--text-muted);
+}
+
+.source-link:hover .source-icon {
+    color: var(--color-cta);
+    background: rgba(139, 92, 246, 0.1);
+}
+
+.source-content-wrapper {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    overflow: hidden;
+}
+
+.source-tag {
+    font-size: 10px;
+    padding: 1px 6px;
+    background: rgba(51, 65, 85, 0.5);
+    color: var(--text-secondary);
+    border-radius: 4px;
+    white-space: nowrap;
+    border: 1px solid rgba(71, 85, 105, 0.3);
+}
+
+.source-text {
+    font-size: 13px;
+    color: var(--text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    transition: color 0.2s ease;
+}
+
+.source-link:hover .source-text {
+    color: var(--text-primary);
+}
+
+.external-icon {
+    color: var(--text-muted);
+    opacity: 0;
+    transform: translateX(-4px);
+    transition: all 0.2s ease;
+}
+
+.source-link:hover .external-icon {
+    opacity: 1;
+    transform: translateX(0);
+}
+
+/* Fix alignment in source links */
+.source-link {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    /* Strict vertical center */
+    gap: 12px;
+    height: 40px;
+    /* Enforce consistent height */
+}
+
+.source-icon {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+}
+
+.source-content-wrapper {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    /* Enable flex child shrinking */
+    height: 100%;
+}
+
+.source-tag {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    height: 20px;
+    line-height: 1;
+    margin: 0;
+}
+
+.source-text {
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    line-height: 24px;
+    /* Match icon height approx */
+    padding-top: 1px;
+    /* Optical adjustment */
+}

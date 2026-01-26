@@ -30,9 +30,7 @@ const SOURCE_OPTIONS = [
     { id: 'all', name: '全部' },
     { id: 'cls', name: '财联社' },
     { id: 'wallstreetcn', name: '华尔街见闻' },
-    { id: 'xueqiu', name: '雪球' },
-    { id: 'eastmoney', name: '东方财富' },
-    { id: 'yicai', name: '第一财经' }
+    { id: 'xueqiu', name: '雪球' }
 ]
 
 const API_BASE = import.meta.env.DEV ? 'http://localhost:8765' : ''

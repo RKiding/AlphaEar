@@ -58,8 +58,6 @@ function App() {
     { id: 'cls', label: '财联社' },
     { id: 'wallstreetcn', label: '华尔街见闻' },
     { id: 'xueqiu', label: '雪球' },
-    { id: 'eastmoney', label: '东方财富' },
-    { id: 'yicai', label: '第一财经' },
     { id: 'weibo', label: '微博' },
     { id: 'zhihu', label: '知乎' },
     { id: 'baidu', label: '百度' },
@@ -409,6 +407,33 @@ function App() {
 
                   return (
                     <div className="dashboard-grid">
+                      {/* Sources Summary Stats */}
+                      {(displaySignals.length > 0) && (() => {
+                        const sourcesStats = displaySignals.reduce((acc, sig) => {
+                          (sig.sources || []).forEach(src => {
+                            const name = src.source_name || src.title || 'Unknown'
+                            acc[name] = (acc[name] || 0) + 1
+                          })
+                          return acc
+                        }, {} as Record<string, number>)
+                        const sourceList = Object.entries(sourcesStats).sort((a, b) => b[1] - a[1])
+
+                        if (sourceList.length === 0) return null
+
+                        // Import Newspaper icon at top level, but for now inline usage is fine if imported
+                        return (
+                          <div className="sources-summary">
+                            <div className="sources-label"><TrendingUp size={16} /> 来源分布:</div>
+                            {sourceList.map(([name, count]) => (
+                              <div key={name} className="source-stat">
+                                <span>{name}</span>
+                                <strong>{count}</strong>
+                              </div>
+                            ))}
+                          </div>
+                        )
+                      })()}
+
                       {displaySignals.length > 0 && (
                         <div className="signals-section">
                           <h3 className="section-title"><Target size={16} /> 识别信号 ({displaySignals.length})</h3>

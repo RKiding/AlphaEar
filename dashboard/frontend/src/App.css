@@ -607,3 +607,50 @@ body {
   border-radius: var(--radius-md);
   padding: var(--space-lg);
 }
+/* Sources Summary */
+.sources-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-md);
+  margin-bottom: var(--space-lg);
+  padding: 16px 20px;
+  background: rgba(15, 23, 42, 0.4);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-lg);
+}
+
+.sources-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-muted);
+    margin-right: 8px;
+}
+
+.source-stat {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 14px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    font-size: 12px;
+    color: var(--text-secondary);
+    transition: all 0.2s ease;
+}
+
+.source-stat:hover {
+    border-color: var(--color-cta);
+    transform: translateY(-1px);
+    background: rgba(139, 92, 246, 0.05);
+}
+
+.source-stat strong {
+    color: var(--color-primary);
+    font-weight: 600;
+    font-size: 14px;
+}
