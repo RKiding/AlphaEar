@@ -36,7 +36,8 @@ class DashboardDB:
                 finished_at TEXT,
                 signal_count INTEGER DEFAULT 0,
                 report_path TEXT,
-                error_message TEXT
+                error_message TEXT,
+                user_id TEXT
             )
         """)
         
@@ -51,6 +52,13 @@ class DashboardDB:
         try:
             cursor.execute("ALTER TABLE dashboard_runs ADD COLUMN run_data_json TEXT")
             logger.info("Migrated database: added run_data_json column")
+        except sqlite3.OperationalError:
+            pass  # 列已存在
+
+        # 自动迁移：添加 user_id 列
+        try:
+            cursor.execute("ALTER TABLE dashboard_runs ADD COLUMN user_id TEXT")
+            logger.info("Migrated database: added user_id column")
         except sqlite3.OperationalError:
             pass  # 列已存在
         
@@ -71,6 +79,7 @@ class DashboardDB:
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_steps_run_id ON dashboard_steps(run_id)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_runs_query ON dashboard_runs(query)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_runs_status ON dashboard_runs(status)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_runs_user_id ON dashboard_runs(user_id)")
         
         self.conn.commit()
     
@@ -80,9 +89,9 @@ class DashboardDB:
         """创建新运行记录"""
         cursor = self.conn.cursor()
         cursor.execute("""
-            INSERT INTO dashboard_runs (run_id, query, sources, status, started_at, parent_run_id)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, (run.run_id, run.query, run.sources, run.status, run.started_at, run.parent_run_id))
+            INSERT INTO dashboard_runs (run_id, query, sources, status, started_at, parent_run_id, user_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (run.run_id, run.query, run.sources, run.status, run.started_at, run.parent_run_id, run.user_id))
         self.conn.commit()
         return run
     
@@ -166,15 +175,24 @@ class DashboardDB:
     
     # ========== 历史记录 ==========
     
-    def get_history(self, limit: int = 50) -> List[HistoryItem]:
+    def get_history(self, limit: int = 50, user_id: Optional[str] = None) -> List[HistoryItem]:
         """获取历史运行列表"""
         cursor = self.conn.cursor()
-        cursor.execute("""
+        
+        query_sql = """
             SELECT run_id, query, status, started_at, finished_at, signal_count, parent_run_id, report_path
             FROM dashboard_runs
-            ORDER BY started_at DESC
-            LIMIT ?
-        """, (limit,))
+        """
+        params = []
+        
+        if user_id:
+            query_sql += " WHERE user_id = ?"
+            params.append(user_id)
+            
+        query_sql += " ORDER BY started_at DESC LIMIT ?"
+        params.append(limit)
+        
+        cursor.execute(query_sql, tuple(params))
         
         items = []
         now = datetime.now()
@@ -204,31 +222,49 @@ class DashboardDB:
         
         return items
     
-    def get_query_groups(self, limit: int = 20) -> List[QueryGroup]:
+    def get_query_groups(self, limit: int = 20, user_id: Optional[str] = None) -> List[QueryGroup]:
         """按 Query 分组获取历史记录"""
         cursor = self.conn.cursor()
         
         # 获取有 query 的运行，按 query 分组
-        cursor.execute("""
+        where_clause = "WHERE query IS NOT NULL AND query != ''"
+        params = []
+        
+        if user_id:
+            where_clause += " AND user_id = ?"
+            params.append(user_id)
+            
+        params.append(limit)
+        
+        cursor.execute(f"""
             SELECT query, COUNT(*) as run_count, MAX(started_at) as last_run_at
             FROM dashboard_runs
-            WHERE query IS NOT NULL AND query != ''
+            {where_clause}
             GROUP BY query
             ORDER BY last_run_at DESC
             LIMIT ?
-        """, (limit,))
+        """, tuple(params))
         
         groups = []
         for row in cursor.fetchall():
             query = row['query']
             
             # 获取该 query 的所有运行
-            cursor.execute("""
+            # 获取该 query 的所有运行
+            run_query = """
                 SELECT run_id, query, status, started_at, finished_at, signal_count, parent_run_id, report_path
                 FROM dashboard_runs
                 WHERE query = ?
-                ORDER BY started_at DESC
-            """, (query,))
+            """
+            run_params = [query]
+            
+            if user_id:
+                run_query += " AND user_id = ?"
+                run_params.append(user_id)
+                
+            run_query += " ORDER BY started_at DESC"
+            
+            cursor.execute(run_query, tuple(run_params))
             
             runs = [HistoryItem(**dict(r)) for r in cursor.fetchall()]
             
@@ -252,15 +288,22 @@ class DashboardDB:
             return DashboardRun(**dict(row))
         return None
 
-    def get_latest_run_by_query(self, query: str) -> Optional[DashboardRun]:
+    def get_latest_run_by_query(self, query: str, user_id: Optional[str] = None) -> Optional[DashboardRun]:
         """获取指定 query 的最新运行记录"""
         if not query:
             return None
         cursor = self.conn.cursor()
-        cursor.execute(
-            "SELECT * FROM dashboard_runs WHERE query = ? ORDER BY started_at DESC LIMIT 1",
-            (query,)
-        )
+        
+        sql = "SELECT * FROM dashboard_runs WHERE query = ?"
+        params = [query]
+        
+        if user_id:
+            sql += " AND user_id = ?"
+            params.append(user_id)
+            
+        sql += " ORDER BY started_at DESC LIMIT 1"
+        
+        cursor.execute(sql, tuple(params))
         row = cursor.fetchone()
         if row:
             return DashboardRun(**dict(row))

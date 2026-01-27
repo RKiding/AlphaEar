@@ -115,7 +115,29 @@ class DatabaseManager:
                 impact_tickers TEXT,
                 industry_tags TEXT,
                 sources TEXT,
+                user_id TEXT,
                 created_at TEXT
+            )
+        """)
+        
+        # 5.1 用户表
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL,
+                created_at TEXT
+            )
+        """)
+
+        # 5.2 邀请码表
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS invitation_codes (
+                code TEXT PRIMARY KEY,
+                is_used BOOLEAN DEFAULT 0,
+                used_by INTEGER,
+                created_at TEXT,
+                FOREIGN KEY (used_by) REFERENCES users(id)
             )
         """)
         
@@ -124,8 +146,18 @@ class DatabaseManager:
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_news_source ON daily_news(source)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_search_cache_timestamp ON search_cache(timestamp)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_stock_prices_ticker_date ON stock_prices(ticker, date)")
-        
+        # 尝试添加 user_id 列到 signals 表
+        try:
+            cursor.execute("ALTER TABLE signals ADD COLUMN user_id TEXT")
+        except:
+            pass
+            
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_signals_user_id ON signals(user_id)")
+            
         self.conn.commit()
+        
+        # 初始化邀请码
+        self._ensure_invitation_code()
 
     # --- 新闻数据操作 ---
     
@@ -518,8 +550,8 @@ class DatabaseManager:
             INSERT OR REPLACE INTO signals 
             (signal_id, title, summary, transmission_chain, sentiment_score, 
              confidence, intensity, expected_horizon, price_in_status, 
-             impact_tickers, industry_tags, sources, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             impact_tickers, industry_tags, sources, user_id, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             signal.get('signal_id'),
             signal.get('title'),
@@ -533,14 +565,18 @@ class DatabaseManager:
             json.dumps(signal.get('impact_tickers', [])),
             json.dumps(signal.get('industry_tags', [])),
             json.dumps(signal.get('sources', [])),
+            signal.get('user_id'),
             created_at
         ))
         self.conn.commit()
 
-    def get_recent_signals(self, limit: int = 20) -> List[Dict]:
+    def get_recent_signals(self, limit: int = 20, user_id: Optional[str] = None) -> List[Dict]:
         """获取最近的投资信号"""
         cursor = self.conn.cursor()
-        cursor.execute("SELECT * FROM signals ORDER BY created_at DESC LIMIT ?", (limit,))
+        if user_id:
+            cursor.execute("SELECT * FROM signals WHERE user_id = ? ORDER BY created_at DESC LIMIT ?", (user_id, limit))
+        else:
+            cursor.execute("SELECT * FROM signals ORDER BY created_at DESC LIMIT ?", (limit,))
         rows = cursor.fetchall()
         
         signals = []
@@ -556,7 +592,70 @@ class DatabaseManager:
             signals.append(d)
         return signals
 
+    # --- 用户管理 ---
+
+    def _ensure_invitation_code(self):
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM users")
+        user_count = cursor.fetchone()[0]
+        
+        cursor.execute("SELECT COUNT(*) FROM invitation_codes WHERE is_used = 0")
+        code_count = cursor.fetchone()[0]
+        
+        if user_count == 0 and code_count == 0:
+            initial_code = "ALPHA-EAR-ADMIN"
+            cursor.execute("INSERT OR IGNORE INTO invitation_codes (code, created_at) VALUES (?, ?)", 
+                          (initial_code, datetime.now().isoformat()))
+            self.conn.commit()
+            logger.info(f"🔑 Generate Initial Invitation Code: {initial_code}")
+
+    def create_invitation_code(self, code: str) -> bool:
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("INSERT INTO invitation_codes (code, created_at) VALUES (?, ?)", 
+                          (code, datetime.now().isoformat()))
+            self.conn.commit()
+            return True
+        except sqlite3.IntegrityError:
+            return False
+
+    def verify_invitation_code(self, code: str) -> bool:
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT 1 FROM invitation_codes WHERE code = ? AND is_used = 0", (code,))
+        return cursor.fetchone() is not None
+
+    def create_user(self, username: str, password_hash: str, invitation_code: str) -> bool:
+        cursor = self.conn.cursor()
+        
+        # Verify invitation code
+        cursor.execute("SELECT code FROM invitation_codes WHERE code = ? AND is_used = 0", (invitation_code,))
+        if not cursor.fetchone():
+            return False
+            
+        try:
+            # Create user
+            cursor.execute("INSERT INTO users (username, password_hash, created_at) VALUES (?, ?, ?)",
+                          (username, password_hash, datetime.now().isoformat()))
+            user_id = cursor.lastrowid
+            
+            # Mark code as used
+            cursor.execute("UPDATE invitation_codes SET is_used = 1, used_by = ? WHERE code = ?",
+                          (user_id, invitation_code))
+            
+            self.conn.commit()
+            return True
+        except sqlite3.IntegrityError:
+            self.conn.rollback()
+            return False
+
+    def get_user_by_username(self, username: str) -> Optional[Dict]:
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT * FROM users WHERE username = ?", (username,))
+        row = cursor.fetchone()
+        return dict(row) if row else None
+
     def close(self):
         if self.conn:
             self.conn.close()
             logger.info("Database connection closed.")
+

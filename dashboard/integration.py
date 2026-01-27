@@ -125,7 +125,8 @@ class WorkflowRunner:
         sources: List[str] = None,
         wide: int = 10,
         depth: Union[int, str] = "auto",
-        run_state: Any = None
+        run_state: Any = None,
+        user_id: Optional[str] = None
     ):
         """在后台线程启动工作流"""
         if self._running:
@@ -135,7 +136,7 @@ class WorkflowRunner:
         self._running = True
         self._thread = threading.Thread(
             target=self._run_workflow,
-            args=(query, sources or ["financial"], wide, depth, run_state),
+            args=(query, sources or ["financial"], wide, depth, run_state, user_id),
             daemon=True
         )
         self._thread.start()
@@ -145,7 +146,8 @@ class WorkflowRunner:
         base_run_id: str,
         run_state: Any = None,
         user_query: Optional[str] = None,
-        new_run_id: str = None
+        new_run_id: str = None,
+        user_id: Optional[str] = None
     ):
         """在后台线程启动更新工作流"""
         if self._running:
@@ -154,7 +156,7 @@ class WorkflowRunner:
         self._running = True
         self._thread = threading.Thread(
             target=self._run_update,
-            args=(base_run_id, run_state, user_query, new_run_id),
+            args=(base_run_id, run_state, user_query, new_run_id, user_id),
             daemon=True
         )
         self._thread.start()
@@ -165,7 +167,8 @@ class WorkflowRunner:
         sources: List[str],
         wide: int,
         depth: Union[int, str],
-        run_state: Any
+        run_state: Any,
+        user_id: Optional[str] = None
     ):
         """实际执行工作流（在后台线程中）- 完整复制 main_flow.py 逻辑"""
         cb = dashboard_callback
@@ -390,6 +393,9 @@ class WorkflowRunner:
                             cb.graph(graph)
                         
                         # 保存到数据库
+                        sig_dict["user_id"] = user_id
+                        if user_id and sig_dict.get("signal_id"):
+                             sig_dict["signal_id"] = f"{sig_dict['signal_id']}_{user_id}"
                         workflow.db.save_signal(sig_dict)
                     else:
                         cb.step("warning", "FinAgent", f"⚠️ 无法解析: {title}")
@@ -471,7 +477,8 @@ class WorkflowRunner:
         finally:
             self._running = False
             self._cancelled = False
-    def _run_update(self, base_run_id: str, run_state: Any, user_query: Optional[str], new_run_id: str = None):
+    
+    def _run_update(self, base_run_id: str, run_state: Any, user_query: Optional[str], new_run_id: str = None, user_id: Optional[str] = None):
         """执行更新工作流 (Thread)"""
         cb = dashboard_callback
         try:
@@ -490,7 +497,8 @@ class WorkflowRunner:
                 base_run_id=base_run_id,
                 user_query=user_query,
                 new_run_id=new_run_id,
-                callback=cb
+                callback=cb,
+                user_id=user_id
             )
             
             if generated_run_id:

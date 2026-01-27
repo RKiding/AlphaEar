@@ -19,6 +19,7 @@ class DashboardRun(BaseModel):
     report_path: Optional[str] = None
     error_message: Optional[str] = None
     parent_run_id: Optional[str] = None  # Parent run ID for updates/versions
+    user_id: Optional[str] = None
 
 
 class DashboardStep(BaseModel):
@@ -66,3 +67,25 @@ class QueryGroup(BaseModel):
     run_count: int
     runs: List[HistoryItem]
     last_run_at: Optional[str] = None
+
+
+class UserRegister(BaseModel):
+    username: str
+    password: str
+    invitation_code: str
+
+
+class UserLogin(BaseModel):
+    username: str
+    password: str
+
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+
+
+class User(BaseModel):
+    id: int
+    username: str
+    created_at: Optional[str] = None

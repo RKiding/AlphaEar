@@ -455,3 +455,176 @@
     line-height: 1.6;
     color: #E2E8F0;
 }
+/* View Mode Toggle */
+.view-mode-toggle {
+    display: flex;
+    gap: 4px;
+    margin-top: 16px;
+    padding: 4px;
+    background: var(--bg-primary, #0F172A);
+    border-radius: 8px;
+}
+
+.view-mode-toggle button {
+    flex: 1;
+    padding: 8px 12px;
+    font-size: 12px;
+    font-weight: 500;
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    color: var(--text-muted, #64748B);
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.view-mode-toggle button:hover {
+    color: var(--text-secondary, #94A3B8);
+}
+
+.view-mode-toggle button.active {
+    background: var(--bg-secondary, #1E293B);
+    color: var(--color-primary, #F59E0B);
+}
+
+/* Full HTML Report Section */
+.full-report-section .html-report-content {
+    background: var(--bg-primary, #0F172A);
+    border-radius: 12px;
+    padding: 24px 32px;
+    color: var(--text-primary, #F8FAFC);
+    line-height: 1.8;
+    font-size: 14px;
+}
+
+/* Dark Theme Overrides for HTML Content */
+.html-report-content h1,
+.html-report-content h2,
+.html-report-content h3,
+.html-report-content h4,
+.html-report-content h5,
+.html-report-content h6 {
+    color: var(--text-primary, #F8FAFC) !important;
+    margin-top: 1.5em;
+    margin-bottom: 0.5em;
+    font-family: var(--font-heading, 'Poppins', sans-serif);
+}
+
+.html-report-content h2 {
+    border-left: 4px solid var(--color-cta, #8B5CF6);
+    padding-left: 16px;
+    background: rgba(139, 92, 246, 0.1);
+    padding-top: 10px;
+    padding-bottom: 10px;
+    border-radius: 0 8px 8px 0;
+}
+
+.html-report-content h3,
+.html-report-content h4 {
+    color: var(--color-primary, #F59E0B) !important;
+    border-bottom: 1px solid var(--border-primary, #334155);
+    padding-bottom: 8px;
+}
+
+.html-report-content p {
+    color: var(--text-secondary, #94A3B8);
+    margin: 1em 0;
+}
+
+.html-report-content strong {
+    color: var(--text-primary, #F8FAFC);
+}
+
+.html-report-content a {
+    color: var(--color-cta, #8B5CF6);
+    text-decoration: none;
+}
+
+.html-report-content a:hover {
+    text-decoration: underline;
+}
+
+.html-report-content code {
+    background: var(--bg-tertiary, #334155);
+    color: #A78BFA;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: var(--font-mono, monospace);
+    font-size: 13px;
+}
+
+.html-report-content pre {
+    background: var(--bg-tertiary, #334155);
+    border: 1px solid var(--border-primary, #334155);
+    border-radius: 8px;
+    padding: 16px;
+    overflow-x: auto;
+    margin: 16px 0;
+}
+
+.html-report-content pre code {
+    background: transparent;
+    padding: 0;
+}
+
+.html-report-content blockquote {
+    border-left: 4px solid var(--color-primary, #F59E0B);
+    margin: 1.5em 0;
+    padding: 0.5em 16px;
+    background: rgba(245, 158, 11, 0.05);
+    border-radius: 0 8px 8px 0;
+    color: var(--text-secondary, #94A3B8);
+    font-style: italic;
+}
+
+.html-report-content ul,
+.html-report-content ol {
+    color: var(--text-secondary, #94A3B8);
+    padding-left: 24px;
+    margin: 1em 0;
+}
+
+.html-report-content li {
+    margin: 0.5em 0;
+}
+
+.html-report-content table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 20px 0;
+    background: var(--bg-secondary, #1E293B);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.html-report-content table th,
+.html-report-content table td {
+    border: 1px solid var(--border-primary, #334155);
+    padding: 12px;
+    text-align: left;
+}
+
+.html-report-content table th {
+    background: var(--bg-tertiary, #334155);
+    color: var(--text-primary, #F8FAFC);
+    font-weight: 600;
+}
+
+.html-report-content table td {
+    color: var(--text-secondary, #94A3B8);
+}
+
+.html-report-content hr {
+    border: none;
+    border-top: 1px solid var(--border-primary, #334155);
+    margin: 24px 0;
+}
+
+.html-report-content .footer {
+    border-top: 1px solid var(--border-primary, #334155);
+    padding-top: 16px;
+    margin-top: 32px;
+    color: var(--text-muted, #64748B);
+    font-size: 12px;
+    text-align: center;
+}

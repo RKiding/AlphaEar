@@ -128,6 +128,13 @@ interface DashboardState {
     // Console 折叠状态
     consoleCollapsed: boolean
     setConsoleCollapsed: (collapsed: boolean) => void
+
+    // Auth
+    user: { id: number; username: string } | null
+    token: string | null
+    isAuthenticated: boolean
+    login: (user: { id: number; username: string }, token: string) => void
+    logout: () => void
 }
 
 export const useDashboardStore = create<DashboardState>()(
@@ -215,7 +222,14 @@ export const useDashboardStore = create<DashboardState>()(
 
             // Console 折叠状态
             consoleCollapsed: false,
-            setConsoleCollapsed: (collapsed) => set({ consoleCollapsed: collapsed })
+            setConsoleCollapsed: (collapsed) => set({ consoleCollapsed: collapsed }),
+
+            // Auth
+            user: null,
+            token: null,
+            isAuthenticated: false,
+            login: (user, token) => set({ user, token, isAuthenticated: true }),
+            logout: () => set({ user: null, token: null, isAuthenticated: false })
         }),
         {
             name: 'signalflux-console',
@@ -228,7 +242,10 @@ export const useDashboardStore = create<DashboardState>()(
                 graph: state.graph,
                 runId: state.runId,
                 query: state.query,
-                consoleCollapsed: state.consoleCollapsed
+                consoleCollapsed: state.consoleCollapsed,
+                user: state.user,
+                token: state.token,
+                isAuthenticated: state.isAuthenticated
                 // Intentionally NOT persisting: status, phase, progress
                 // These should reset to 'idle' on page refresh to sync with backend
             })

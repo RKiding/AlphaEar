@@ -131,6 +131,7 @@ class SignalFluxWorkflow:
         resume: bool = False,
         resume_from: str = "report",
         checkpoint_dir: str = "reports/checkpoints",
+        user_id: Optional[str] = None,
     ) -> Optional[str]:
         """执行完整工作流
         
@@ -161,6 +162,7 @@ class SignalFluxWorkflow:
                 "started_at": datetime.now().isoformat(),
                 "params": {"sources": sources, "wide": wide, "depth": depth, "query": query},
                 "status": "running",
+                "user_id": user_id,
             },
         )
 
@@ -386,7 +388,12 @@ class SignalFluxWorkflow:
                             sig_obj.sources = [{"title": signal["title"], "url": signal["url"], "source_name": signal.get("source", "Unknown")}]
 
                         # 保存到深度信号表
-                        self.db.save_signal(sig_obj.dict())
+                        sig_dict = sig_obj.dict()
+                        if user_id:
+                            sig_dict['user_id'] = user_id
+                            if sig_dict.get('signal_id'):
+                                sig_dict['signal_id'] = f"{sig_dict['signal_id']}_{user_id}"
+                        self.db.save_signal(sig_dict)
                         analyzed_signals.append(sig_obj.dict())
 
                         # 同步回 news 表（旧逻辑兼容）
@@ -446,7 +453,8 @@ class SignalFluxWorkflow:
         checkpoint_dir: str = "reports/checkpoints",
         user_query: Optional[str] = None,
         new_run_id: Optional[str] = None,
-        callback: Optional[Any] = None
+        callback: Optional[Any] = None,
+        user_id: Optional[str] = None,
     ) -> Optional[str]:
         """
         基于已有 Run 进行更新：

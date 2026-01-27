@@ -23,10 +23,55 @@ import uvicorn
 from dotenv import load_dotenv
 load_dotenv()
 
-from .models import RunRequest, RunResponse, DashboardRun, DashboardStep, HistoryItem, QueryGroup
+from .models import RunRequest, RunResponse, DashboardRun, DashboardStep, HistoryItem, QueryGroup, UserRegister, UserLogin, Token, User
 from .db import get_db
 from utils.database_manager import DatabaseManager
 from utils.news_tools import NewsNowTools
+
+from fastapi.security import OAuth2PasswordBearer
+from fastapi import Depends, status
+from passlib.context import CryptContext
+from jose import JWTError, jwt
+
+# ============ Auth Configuration ============
+SECRET_KEY = os.getenv("SECRET_KEY", "alphaear-secret-key-change-me")
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 days
+
+pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/auth/login")
+
+def verify_password(plain_password, hashed_password):
+    return pwd_context.verify(plain_password, hashed_password)
+
+def get_password_hash(password):
+    return pwd_context.hash(password)
+
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        expire = datetime.utcnow() + timedelta(minutes=15)
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
+
+async def get_current_user(token: str = Depends(oauth2_scheme)):
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username: str = payload.get("sub")
+        user_id: int = payload.get("id")
+        if username is None or user_id is None:
+            raise credentials_exception
+        return {"username": username, "id": str(user_id)}
+    except JWTError:
+        raise credentials_exception
 
 
 
@@ -35,34 +80,63 @@ class RunState:
     """当前运行状态"""
     def __init__(self):
         self.current_run_id: Optional[str] = None
+        self.current_user_id: Optional[str] = None # Track who owns the current run
         self.status: str = "idle"
         self.phase: str = ""
         self.progress: int = 0
         self.output: Optional[str] = None  # 报告文件路径
         self.report_structured: Optional[dict] = None
-        self.connections: List[WebSocket] = []
+        
+        # Connections grouped by user_id
+        self.user_connections: Dict[str, List[WebSocket]] = {}
         
         # 缓存数据（用于 WebSocket 推送）
         self.signals: List[Dict] = []
         self.charts: Dict[str, Dict] = {}
         self.transmission_graph: Dict = {}
     
+    def add_connection(self, user_id: str, websocket: WebSocket):
+        if user_id not in self.user_connections:
+            self.user_connections[user_id] = []
+        self.user_connections[user_id].append(websocket)
+        
+    def remove_connection(self, user_id: str, websocket: WebSocket):
+        if user_id in self.user_connections:
+            if websocket in self.user_connections[user_id]:
+                self.user_connections[user_id].remove(websocket)
+
     async def broadcast(self, message: dict):
-        """广播消息到所有连接"""
+        """广播消息：只发送给当前任务的所有者"""
+        if not self.current_user_id:
+            # Try to infer user from run_id if not set (e.g. after restart)
+            if self.current_run_id:
+                try:
+                    db = get_db()
+                    run = db.get_run(self.current_run_id)
+                    if run:
+                        self.current_user_id = str(run.user_id)
+                except:
+                    pass
+        
+        if not self.current_user_id:
+            return # No active user context to broadcast to
+
+        target_connections = self.user_connections.get(str(self.current_user_id), [])
+        
         dead_connections = []
-        for ws in self.connections:
+        for ws in target_connections:
             try:
                 await ws.send_json(message)
             except:
                 dead_connections.append(ws)
         
-        # 清理断开的连接
+        # Cleanup
         for ws in dead_connections:
-            if ws in self.connections:
-                self.connections.remove(ws)
+            self.remove_connection(str(self.current_user_id), ws)
     
-    def reset(self, run_id: str):
+    def reset(self, run_id: str, user_id: str):
         self.current_run_id = run_id
+        self.current_user_id = str(user_id)
         self.status = "running"
         self.phase = "初始化"
         self.progress = 0
@@ -99,6 +173,10 @@ async def lifespan(app: FastAPI):
     ║  📚 API Docs:  http://localhost:8765/docs                 ║
     ╚═══════════════════════════════════════════════════════════╝
     """)
+    # Ensure DB tables exist on startup
+    db = DatabaseManager() 
+    db.close()
+    
     yield
     print("👋 Dashboard shutting down")
 
@@ -116,118 +194,217 @@ app.add_middleware(
 
 # ============ WebSocket ============
 @app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
-    await websocket.accept()
-    run_state.connections.append(websocket)
-    db = get_db()
-    
-    # 发送初始状态
-    running_task = db.get_running_task()
-    if running_task:
-        steps = db.get_steps(running_task.run_id, limit=100)
-        # Filter out charts without valid prices to prevent frontend crashes
-        valid_charts = {
-            k: v for k, v in run_state.charts.items()
-            if v and isinstance(v.get("prices"), list) and len(v.get("prices", [])) > 0
-        }
-        await websocket.send_json({
-            "type": "init",
-            "data": {
-                "run_id": running_task.run_id,
-                "status": running_task.status,
-                "query": running_task.query,
-                "steps": [s.model_dump() for s in steps],
-                "signals": run_state.signals,
-                "charts": valid_charts,
-                "graph": run_state.transmission_graph
-            }
-        })
-    else:
-        await websocket.send_json({
-            "type": "init",
-            "data": {
-                "run_id": None,
-                "status": "idle",
-                "query": None,
-                "steps": [],
-                "signals": [],
-                "charts": {},
-                "graph": {}
-            }
-        })
-    
+async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
+    """WebSocket endpoint with Query Param Authentication"""
+    user_id = None
     try:
+        # 1. Authentication
+        logger.info(f"🔌 WebSocket connection attempt. Token present: {bool(token)}, Token length: {len(token) if token else 0}")
+        
+        if not token:
+            logger.warning("🚫 WebSocket rejected: No token provided")
+            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+            return
+            
+        try:
+            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+            user_id = str(payload.get("id"))
+            logger.info(f"✅ WebSocket token valid for user_id: {user_id}")
+            if not user_id:
+                raise JWTError("Missing user id in token")
+        except JWTError as e:
+            logger.warning(f"🚫 WebSocket rejected: JWT validation failed - {e}")
+            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+            return
+
+        # 2. Connection Upgrade
+        await websocket.accept()
+        run_state.add_connection(user_id, websocket)
+        db = get_db()
+        
+        # 3. Initial State Push (User Isolated)
+        # Check if the currently running task belongs to this user
+        running_task = db.get_running_task()
+        
+        is_user_task_running = (
+            running_task 
+            and running_task.user_id 
+            and str(running_task.user_id) == user_id
+        )
+
+        if is_user_task_running:
+            # Sync user ID to run state if needed
+            if run_state.current_run_id == running_task.run_id:
+                run_state.current_user_id = user_id
+
+            steps = db.get_steps(running_task.run_id, limit=100)
+            valid_charts = {
+                k: v for k, v in run_state.charts.items()
+                if v and isinstance(v.get("prices"), list) and len(v.get("prices", [])) > 0
+            }
+            await websocket.send_json({
+                "type": "init",
+                "data": {
+                    "run_id": running_task.run_id,
+                    "status": running_task.status,
+                    "query": running_task.query,
+                    "steps": [s.model_dump() for s in steps],
+                    "signals": run_state.signals,
+                    "charts": valid_charts,
+                    "graph": run_state.transmission_graph
+                }
+            })
+        else:
+            # Show idle state because system is either idle OR running someone else's task
+            await websocket.send_json({
+                "type": "init",
+                "data": {
+                    "run_id": None,
+                    "status": "idle",
+                    "query": None,
+                    "steps": [],
+                    "signals": [],
+                    "charts": {},
+                    "graph": {}
+                }
+            })
+        
+        # 4. Message Loop
         while True:
             data = await websocket.receive_text()
             msg = json.loads(data)
             
             # 处理客户端命令
             if msg.get("command") == "get_history":
-                history = db.get_history(limit=50)
+                history = db.get_history(limit=50, user_id=user_id)
                 await websocket.send_json({
                     "type": "history",
                     "data": [h.model_dump() for h in history]
                 })
             
             elif msg.get("command") == "get_query_groups":
-                groups = db.get_query_groups(limit=20)
+                groups = db.get_query_groups(limit=20, user_id=user_id)
                 await websocket.send_json({
                     "type": "query_groups",
                     "data": [g.model_dump() for g in groups]
                 })
             
             elif msg.get("command") == "get_run_details":
-                run_id = msg.get("run_id")
-                if run_id:
-                    run = db.get_run(run_id)
-                    steps = db.get_steps(run_id)
-                    await websocket.send_json({
-                        "type": "run_details",
-                        "data": {
-                            "run": run.model_dump() if run else None,
-                            "steps": [s.model_dump() for s in steps]
-                        }
-                    })
+                req_run_id = msg.get("run_id")
+                if req_run_id:
+                    run = db.get_run(req_run_id)
+                    # Security Check
+                    if run and str(run.user_id) == user_id:
+                        steps = db.get_steps(req_run_id)
+                        await websocket.send_json({
+                            "type": "run_details",
+                            "data": {
+                                "run": run.model_dump(),
+                                "steps": [s.model_dump() for s in steps]
+                            }
+                        })
+                    else:
+                        await websocket.send_json({
+                           "type": "error", "message": "Run not found or access denied" 
+                        })
             
             elif msg.get("command") == "get_status":
-                # 返回当前运行状态，用于页面刷新后同步
+                # Only show status if it's THIS user's run
                 from .integration import workflow_runner
                 
-                # 步骤需要从数据库获取
-                steps_data = []
-                if run_state.current_run_id:
-                    steps = db.get_steps(run_state.current_run_id)
-                    steps_data = [s.model_dump() for s in steps]
+                is_active = (run_state.current_user_id == user_id)
                 
-                # Filter out charts without valid prices
-                valid_charts = {
-                    k: v for k, v in run_state.charts.items()
-                    if v and isinstance(v.get("prices"), list) and len(v.get("prices", [])) > 0
-                }
-                
-                await websocket.send_json({
-                    "type": "init",
-                    "data": {
-                        "run_id": run_state.current_run_id,
-                        "status": run_state.status,
-                        "phase": run_state.phase,
-                        "progress": run_state.progress,
-                        "steps": steps_data,
-                        "signals": run_state.signals,
-                        "charts": valid_charts,
-                        "graph": run_state.transmission_graph,
-                        "is_running": workflow_runner.is_running()
+                if is_active:
+                    steps = []
+                    if run_state.current_run_id:
+                        db_steps = db.get_steps(run_state.current_run_id)
+                        steps = [s.model_dump() for s in db_steps]
+
+                    valid_charts = {
+                        k: v for k, v in run_state.charts.items()
+                        if v and isinstance(v.get("prices"), list) and len(v.get("prices", [])) > 0
                     }
-                })
+                    
+                    await websocket.send_json({
+                        "type": "init",
+                        "data": {
+                            "run_id": run_state.current_run_id,
+                            "status": run_state.status,
+                            "phase": run_state.phase,
+                            "progress": run_state.progress,
+                            "steps": steps,
+                            "signals": run_state.signals,
+                            "charts": valid_charts,
+                            "graph": run_state.transmission_graph,
+                            "is_running": workflow_runner.is_running()
+                        }
+                    })
+                else:
+                     await websocket.send_json({
+                        "type": "init",
+                        "data": {
+                            "status": "idle",
+                             "is_running": False
+                        }
+                    })
     
     except WebSocketDisconnect:
-        if websocket in run_state.connections:
-            run_state.connections.remove(websocket)
+        if user_id:
+            run_state.remove_connection(user_id, websocket)
+
+
+# ============ Auth API ============
+
+@app.post("/api/auth/register", response_model=Dict[str, str])
+async def register(user: UserRegister):
+    """用户注册"""
+    # Use DatabaseManager explicitly for user management
+    db_manager = DatabaseManager() 
+    
+    # Check if user exists (simple check via creating)
+    existing = db_manager.get_user_by_username(user.username)
+    if existing:
+        raise HTTPException(status_code=400, detail="Username already registered")
+    
+    hashed_password = get_password_hash(user.password)
+    success = db_manager.create_user(user.username, hashed_password, user.invitation_code)
+    
+    if not success:
+        # Check if it was code error
+        if not db_manager.verify_invitation_code(user.invitation_code):
+             raise HTTPException(status_code=400, detail="Invalid invitation code")
+        raise HTTPException(status_code=500, detail="Registration failed")
+        
+    return {"message": "User created successfully"}
+
+@app.post("/api/auth/login", response_model=Token)
+async def login(user: UserLogin):
+    """用户登录 (JSON Body)"""
+    db_manager = DatabaseManager()
+    db_user = db_manager.get_user_by_username(user.username)
+    
+    if not db_user or not verify_password(user.password, db_user['password_hash']):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": user.username, "id": db_user['id']}, expires_delta=access_token_expires
+    )
+    return {"access_token": access_token, "token_type": "bearer"}
+
+@app.get("/api/auth/me", response_model=User)
+async def read_users_me(current_user: dict = Depends(get_current_user)):
+    """获取当前用户信息"""
+    return User(id=int(current_user['id']), username=current_user['username'])
 
 
 # ============ REST API ============
 @app.post("/api/run", response_model=RunResponse)
-async def start_run(request: RunRequest):
+async def start_run(request: RunRequest, current_user: dict = Depends(get_current_user)):
     """启动新的分析任务"""
     db = get_db()
     
@@ -256,16 +433,17 @@ async def start_run(request: RunRequest):
         query=request.query,
         sources=sources_text,
         status="running",
-        started_at=datetime.now().isoformat()
+        started_at=datetime.now().isoformat(),
+        user_id=current_user['id']
     )
     if request.query:
-        latest = db.get_latest_run_by_query(request.query)
+        latest = db.get_latest_run_by_query(request.query, user_id=current_user['id'])
         if latest and latest.run_id != run_id:
             run.parent_run_id = latest.run_id
     db.create_run(run)
     
     # 重置状态
-    run_state.reset(run_id)
+    run_state.reset(run_id, current_user['id'])
     
     # 启动工作流
     asyncio.create_task(execute_workflow(run_id, request))
@@ -319,17 +497,17 @@ async def cancel_run():
 
 
 @app.get("/api/history", response_model=List[HistoryItem])
-async def get_history(limit: int = 50):
+async def get_history(limit: int = 50, current_user: dict = Depends(get_current_user)):
     """获取历史运行列表"""
     db = get_db()
-    return db.get_history(limit=limit)
+    return db.get_history(limit=limit, user_id=current_user['id'])
 
 
 @app.get("/api/query-groups", response_model=List[QueryGroup])
-async def get_query_groups(limit: int = 20):
+async def get_query_groups(limit: int = 20, current_user: dict = Depends(get_current_user)):
     """按 Query 分组获取历史"""
     db = get_db()
-    return db.get_query_groups(limit=limit)
+    return db.get_query_groups(limit=limit, user_id=current_user['id'])
 
 
 @app.get("/api/hot-news")
@@ -421,13 +599,21 @@ async def suggest_queries(request: dict):
         }
 
 @app.get("/api/run/{run_id}")
-async def get_run(run_id: str):
+async def get_run(run_id: str, current_user: dict = Depends(get_current_user)):
     """获取运行详情"""
     db = get_db()
     run = db.get_run(run_id)
     if not run:
         raise HTTPException(404, "运行记录不存在")
     
+    # Check ownership
+    str_run_user_id = str(run.user_id) if run.user_id is not None else None
+    str_current_user_id = str(current_user['id'])
+    
+    if str_run_user_id and str_run_user_id != str_current_user_id:
+         logger.warning(f"⛔ Access denied in get_run: Run {run_id} belongs to user {str_run_user_id}, but requester is {str_current_user_id}")
+         raise HTTPException(403, "无权访问此运行记录")
+
     steps = db.get_steps(run_id)
     return {
         "run": run.model_dump(),
@@ -436,12 +622,16 @@ async def get_run(run_id: str):
 
 
 @app.get("/api/run/{run_id}/data")
-async def get_run_data(run_id: str):
+async def get_run_data(run_id: str, current_user: dict = Depends(get_current_user)):
     """获取运行的结构化数据 (signals, charts, graph)"""
     db = get_db()
     run = db.get_run(run_id)
     if not run:
         raise HTTPException(404, "运行记录不存在")
+
+    # Check ownership
+    if run.user_id and str(run.user_id) != str(current_user['id']):
+         raise HTTPException(403, "无权访问此运行记录")
     
     data = db.get_run_data(run_id)
     result = data or {
@@ -491,10 +681,23 @@ async def get_run_data(run_id: str):
     }
 
 @app.delete("/api/run/{run_id}")
-async def delete_run(run_id: str, confirm: bool = False):
+async def delete_run(run_id: str, confirm: bool = False, current_user: dict = Depends(get_current_user)):
     """删除运行记录"""
     if not confirm:
+        # Check ownership before confirm? Technically safer to check first.
+        pass
+
+    db = get_db()
+    run = db.get_run(run_id)
+    if not run:
+        raise HTTPException(404, "运行记录不存在")
+        
+    if run.user_id and str(run.user_id) != str(current_user['id']):
+         raise HTTPException(403, "无权删除此运行记录")
+
+    if not confirm:
         raise HTTPException(400, "请确认删除操作 (confirm=true)")
+
     
     db = get_db()
     if db.delete_run(run_id):
@@ -503,23 +706,26 @@ async def delete_run(run_id: str, confirm: bool = False):
 
 
 @app.post("/api/run/{run_id}/rerun")
-async def rerun(run_id: str):
+async def rerun(run_id: str, current_user: dict = Depends(get_current_user)):
     """重新运行相同的查询"""
     db = get_db()
     old_run = db.get_run(run_id)
     if not old_run:
         raise HTTPException(404, "运行记录不存在")
+
+    if old_run.user_id and str(old_run.user_id) != str(current_user['id']):
+         raise HTTPException(403, "无权访问此运行记录")
     
     # 使用相同参数创建新任务
     request = RunRequest(
         query=old_run.query,
         sources=old_run.sources
     )
-    return await start_run(request)
+    return await start_run(request, current_user)
 
 
 @app.post("/api/run/{run_id}/update")
-async def update_run_endpoint(run_id: str, request: RunRequest):
+async def update_run_endpoint(run_id: str, request: RunRequest, current_user: dict = Depends(get_current_user)):
     """
     更新运行记录：基于旧 Run + 新行情生成新报告
     request.query 可用于传递附加指令
@@ -543,7 +749,7 @@ async def update_run_endpoint(run_id: str, request: RunRequest):
     
     # Generate the REAL ID here to ensure alignment
     new_run_id = datetime.now().strftime('%Y%m%d_%H%M%S')
-    run_state.reset(new_run_id)
+    run_state.reset(new_run_id, current_user['id'])
 
     # Create run record upfront so UI/DB can track status
     new_run = DashboardRun(
@@ -552,7 +758,8 @@ async def update_run_endpoint(run_id: str, request: RunRequest):
         sources=old_run.sources,
         status="running",
         started_at=datetime.now().isoformat(),
-        parent_run_id=run_id
+        parent_run_id=run_id,
+        user_id=current_user['id']
     )
     db.create_run(new_run)
     

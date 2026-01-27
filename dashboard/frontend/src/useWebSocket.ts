@@ -20,13 +20,17 @@ export function useWebSocket() {
         updateGraph,
         updateProgress,
         setHistory,
-        setQueryGroups
+        setQueryGroups,
+        token // Get token from store
     } = useDashboardStore()
 
     const connect = useCallback(() => {
+        // Prevent connection if no token or already connected
+        if (!token) return
         if (wsRef.current?.readyState === WebSocket.OPEN) return
 
-        const ws = new WebSocket(WS_URL)
+        const urlWithToken = `${WS_URL}?token=${token}`
+        const ws = new WebSocket(urlWithToken)
         wsRef.current = ws
 
         ws.onopen = () => {
@@ -52,17 +56,20 @@ export function useWebSocket() {
             console.log('❌ WebSocket disconnected')
             setConnected(false)
 
-            // 自动重连
-            reconnectTimeoutRef.current = window.setTimeout(() => {
-                console.log('🔄 Attempting to reconnect...')
-                connect()
-            }, 3000)
+            // 自动重连 (only if token still exists)
+            const currentToken = useDashboardStore.getState().token
+            if (currentToken) {
+                reconnectTimeoutRef.current = window.setTimeout(() => {
+                    console.log('🔄 Attempting to reconnect...')
+                    connect()
+                }, 3000)
+            }
         }
 
         ws.onerror = (error) => {
             console.error('WebSocket error:', error)
         }
-    }, [setConnected])
+    }, [setConnected, token]) // Add token dependency
 
     const handleMessage = (msg: { type: string; data: any }) => {
         switch (msg.type) {
