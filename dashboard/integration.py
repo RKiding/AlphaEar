@@ -5,55 +5,56 @@ AlphaEar Dashboard 集成层
 import asyncio
 import threading
 from datetime import datetime
+import contextvars
 from typing import Optional, Callable, Dict, Any, List, Union
 from loguru import logger
 from queue import Queue
 
+# Context Var to track current run_id in threads
+run_id_ctx = contextvars.ContextVar("run_id", default=None)
+
 class DashboardCallback:
     """
     Dashboard 回调管理器
-    用于在 Agent 执行过程中实时推送状态到 Dashboard
     """
-    
     def __init__(self):
-        self._event_queue: Queue = Queue()
         self._enabled = False
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._broadcast_func: Optional[Callable] = None
     
     def enable(self, broadcast_func: Callable, loop: asyncio.AbstractEventLoop):
-        """启用回调"""
         self._enabled = True
         self._broadcast_func = broadcast_func
         self._loop = loop
         logger.info("📡 Dashboard callback enabled")
     
     def disable(self):
-        """禁用回调"""
         self._enabled = False
         self._broadcast_func = None
         self._loop = None
     
     def _send_event(self, event_type: str, data: dict):
-        """发送事件到 Dashboard"""
         if not self._enabled or not self._broadcast_func or not self._loop:
             return
         
+        # Inject run_id from context
+        current_run_id = run_id_ctx.get()
+        if current_run_id:
+            data["run_id"] = current_run_id
+        
         try:
-            # 从同步代码安全地调用异步函数
             asyncio.run_coroutine_threadsafe(
                 self._broadcast_func({"type": event_type, "data": data}),
                 self._loop
             )
         except Exception as e:
             logger.warning(f"Failed to send dashboard event: {e}")
-    
+
+    # ... methods (phase, step, etc.) remain same as they call _send_event ...
     def phase(self, name: str, progress: int):
-        """更新阶段"""
         self._send_event("progress", {"phase": name, "progress": progress})
     
     def step(self, step_type: str, agent: str, content: str, **kwargs):
-        """添加步骤"""
         self._send_event("step", {
             "type": step_type,
             "agent": agent,
@@ -63,19 +64,15 @@ class DashboardCallback:
         })
     
     def signal(self, signal_data: dict):
-        """推送信号"""
         self._send_event("signal", signal_data)
     
     def chart(self, ticker: str, data: dict):
-        """推送图表数据"""
         self._send_event("chart", {"ticker": ticker, **data})
     
     def prediction(self, ticker: str, prediction: dict):
-        """推送预测"""
         self._send_event("prediction", {"ticker": ticker, "prediction": prediction})
     
     def graph(self, graph_data: dict):
-        """推送传导图"""
         self._send_event("graph", graph_data)
 
 # 全局单例
@@ -84,40 +81,36 @@ dashboard_callback = DashboardCallback()
 
 class WorkflowRunner:
     """
-    工作流运行器
-    在后台线程中执行 AlphaEar 工作流，同时通过 DashboardCallback 推送状态
+    工作流运行器 - 支持多并发
     """
     
     def __init__(self):
         self._workflow = None
-        self._running = False
-        self._cancelled = False
-        self._thread: Optional[threading.Thread] = None
+        # Track active runs: run_id -> Thread
+        self._active_runs: Dict[str, threading.Thread] = {}
+        self._cancelled_flags: Dict[str, bool] = {}
+        self._lock = threading.Lock()
     
     def _ensure_workflow(self):
-        """延迟初始化工作流（避免导入时加载模型）"""
         if self._workflow is None:
             from main_flow import SignalFluxWorkflow
             self._workflow = SignalFluxWorkflow(isq_template_id="default_isq_v1")
         return self._workflow
     
-    def is_running(self) -> bool:
-        return self._running
+    def is_running(self, run_id: str = None) -> bool:
+        if run_id:
+            return run_id in self._active_runs and self._active_runs[run_id].is_alive()
+        return len(self._active_runs) > 0
     
-    def is_cancelled(self) -> bool:
-        return self._cancelled
+    def is_cancelled(self, run_id: str) -> bool:
+        return self._cancelled_flags.get(run_id, False)
     
-    def cancel(self):
-        """请求取消当前工作流"""
-        if self._running:
-            self._cancelled = True
-            logger.info("⚠️ Workflow cancellation requested")
+    def cancel(self, run_id: str):
+        if run_id in self._active_runs:
+            self._cancelled_flags[run_id] = True
+            logger.info(f"⚠️ Workflow cancellation requested for {run_id}")
             return True
         return False
-    
-    def reset_cancel_flag(self):
-        """重置取消标志"""
-        self._cancelled = False
     
     def run_async(
         self,
@@ -125,21 +118,23 @@ class WorkflowRunner:
         sources: List[str] = None,
         wide: int = 10,
         depth: Union[int, str] = "auto",
-        run_state: Any = None,
-        user_id: Optional[str] = None
+        run_state: Any = None, # Deprecated logic, server handles map
+        user_id: Optional[str] = None,
+        run_id: str = None # Required for concurrency
     ):
-        """在后台线程启动工作流"""
-        if self._running:
-            raise RuntimeError("Workflow already running")
+        if run_id in self._active_runs and self._active_runs[run_id].is_alive():
+            raise RuntimeError(f"Run {run_id} is already active")
         
-        self._cancelled = False  # Reset cancel flag
-        self._running = True
-        self._thread = threading.Thread(
-            target=self._run_workflow,
-            args=(query, sources or ["financial"], wide, depth, run_state, user_id),
+        self._cancelled_flags[run_id] = False
+        
+        thread = threading.Thread(
+            target=self._run_workflow_wrapper, # Use wrapper to set context
+            args=(run_id, query, sources or ["financial"], wide, depth, user_id),
             daemon=True
         )
-        self._thread.start()
+        with self._lock:
+            self._active_runs[run_id] = thread
+        thread.start()
 
     def update_run_async(
         self,
@@ -149,25 +144,54 @@ class WorkflowRunner:
         new_run_id: str = None,
         user_id: Optional[str] = None
     ):
-        """在后台线程启动更新工作流"""
-        if self._running:
-            raise RuntimeError("Workflow already running")
-        
-        self._running = True
-        self._thread = threading.Thread(
-            target=self._run_update,
-            args=(base_run_id, run_state, user_query, new_run_id, user_id),
+        if not new_run_id:
+            raise ValueError("new_run_id required for update")
+            
+        if new_run_id in self._active_runs:
+             raise RuntimeError(f"Run {new_run_id} is already active")
+
+        self._cancelled_flags[new_run_id] = False
+
+        thread = threading.Thread(
+            target=self._run_update_wrapper,
+            args=(new_run_id, base_run_id, user_query, user_id),
             daemon=True
         )
-        self._thread.start()
+        with self._lock:
+            self._active_runs[new_run_id] = thread
+        thread.start()
+
+    def _run_workflow_wrapper(self, run_id: str, *args):
+        # Set context var
+        token = run_id_ctx.set(run_id)
+        try:
+            self._run_workflow(run_id, *args)
+        finally:
+            run_id_ctx.reset(token)
+            with self._lock:
+                self._active_runs.pop(run_id, None)
+                self._cancelled_flags.pop(run_id, None)
+    
+    def _run_update_wrapper(self, run_id: str, *args):
+        token = run_id_ctx.set(run_id)
+        try:
+            self._run_update(run_id, *args)
+        finally:
+            run_id_ctx.reset(token)
+            with self._lock:
+                self._active_runs.pop(run_id, None)
+                self._cancelled_flags.pop(run_id, None)
+
+
     
     def _run_workflow(
         self,
+        run_id: str,
         query: Optional[str],
         sources: List[str],
         wide: int,
         depth: Union[int, str],
-        run_state: Any,
+        run_state: Any, # Deprecated in multi-user mode essentially, but kept for sig compatibility
         user_id: Optional[str] = None
     ):
         """实际执行工作流（在后台线程中）- 完整复制 main_flow.py 逻辑"""
@@ -175,7 +199,7 @@ class WorkflowRunner:
         
         def check_cancelled():
             """检查是否已取消"""
-            if self._cancelled:
+            if self._cancelled_flags.get(run_id, False):
                 cb.step("warning", "System", "⚠️ 工作流已取消")
                 raise InterruptedError("Workflow cancelled by user")
         
@@ -438,8 +462,8 @@ class WorkflowRunner:
                 
                 report_dir = "reports"
                 os.makedirs(report_dir, exist_ok=True)
-                timestamp = datetime.now().strftime('%Y%m%d_%H%M')
-                md_filename = f"{report_dir}/daily_report_{timestamp}.md"
+                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                md_filename = f"{report_dir}/daily_report_{timestamp}_{run_id[:6]}.md"
                 
                 with open(md_filename, "w", encoding="utf-8") as f:
                     f.write(md_content)
@@ -475,11 +499,21 @@ class WorkflowRunner:
                 run_state.status = "failed"
         
         finally:
-            self._running = False
-            self._cancelled = False
+            # Cleanup handled by wrapper
+            pass
     
-    def _run_update(self, base_run_id: str, run_state: Any, user_query: Optional[str], new_run_id: str = None, user_id: Optional[str] = None):
+    def _run_update(self, run_id: str, base_run_id: str, *args):
         """执行更新工作流 (Thread)"""
+        # args: user_query, user_id
+        # We need to map args correctly or change signature to named args in wrapper
+        # Wrapper calls: self._run_update(run_id, *args)
+        # update_run_async args: (new_run_id, base_run_id, user_query, user_id)
+        # So in wrapper args is (base_run_id, user_query, user_id)
+        
+        # Unpack
+        user_query = args[0] if len(args) > 0 else None
+        user_id = args[1] if len(args) > 1 else None
+
         cb = dashboard_callback
         try:
             cb.phase("初始化", 5)
@@ -518,7 +552,7 @@ class WorkflowRunner:
             if run_state:
                 run_state.status = "failed"
         finally:
-            self._running = False
+            pass
     
     def _format_chart_from_df(self, ticker: str, name: str, df, news_text: Optional[str] = None, prediction_logic: Optional[str] = None) -> dict:
         """从 DataFrame 格式化价格数据为图表格式（推荐方法），包含预测"""

@@ -76,24 +76,42 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
 
 
 # ============ 全局状态管理 ============
-class RunState:
-    """当前运行状态"""
-    def __init__(self):
-        self.current_run_id: Optional[str] = None
-        self.current_user_id: Optional[str] = None # Track who owns the current run
-        self.status: str = "idle"
-        self.phase: str = ""
+class RunContext:
+    """单个运行的状态上下文"""
+    def __init__(self, run_id: str, user_id: str):
+        self.run_id = run_id
+        self.user_id = user_id
+        self.status: str = "running"
+        self.phase: str = "初始化"
         self.progress: int = 0
-        self.output: Optional[str] = None  # 报告文件路径
+        self.output: Optional[str] = None
         self.report_structured: Optional[dict] = None
-        
-        # Connections grouped by user_id
-        self.user_connections: Dict[str, List[WebSocket]] = {}
-        
-        # 缓存数据（用于 WebSocket 推送）
         self.signals: List[Dict] = []
         self.charts: Dict[str, Dict] = {}
         self.transmission_graph: Dict = {}
+        self.error_message: Optional[str] = None
+
+
+class RunState:
+    """全局运行状态管理器 (支持多并发)"""
+    def __init__(self):
+        # Map run_id -> RunContext
+        self.runs: Dict[str, RunContext] = {}
+        
+        # Map user_id -> List[WebSocket]
+        self.user_connections: Dict[str, List[WebSocket]] = {}
+        
+        # Map run_id -> user_id (Quick lookup for routing)
+        self.active_run_owners: Dict[str, str] = {}
+    
+    def get_run(self, run_id: str) -> Optional[RunContext]:
+        return self.runs.get(run_id)
+
+    def create_context(self, run_id: str, user_id: str) -> RunContext:
+        ctx = RunContext(run_id, str(user_id))
+        self.runs[run_id] = ctx
+        self.active_run_owners[run_id] = str(user_id)
+        return ctx
     
     def add_connection(self, user_id: str, websocket: WebSocket):
         if user_id not in self.user_connections:
@@ -106,22 +124,33 @@ class RunState:
                 self.user_connections[user_id].remove(websocket)
 
     async def broadcast(self, message: dict):
-        """广播消息：只发送给当前任务的所有者"""
-        if not self.current_user_id:
-            # Try to infer user from run_id if not set (e.g. after restart)
-            if self.current_run_id:
+        """精准广播：根据 message 中的 run_id 路由给特定用户"""
+        data = message.get("data", {})
+        target_user_id = None
+        
+        # 1. 尝试从消息中获取 run_id
+        run_id = data.get("run_id") if isinstance(data, dict) else None
+        
+        if run_id:
+            # 2. 查找 run owner
+            if run_id in self.active_run_owners:
+                target_user_id = self.active_run_owners[run_id]
+            else:
+                # 尝试从 DB 恢复 (针对重启后的恢复)
                 try:
                     db = get_db()
-                    run = db.get_run(self.current_run_id)
+                    run = db.get_run(run_id)
                     if run:
-                        self.current_user_id = str(run.user_id)
-                except:
+                        self.active_run_owners[run_id] = str(run.user_id)
+                        target_user_id = str(run.user_id)
+                except Exception:
                     pass
         
-        if not self.current_user_id:
-            return # No active user context to broadcast to
+        if not target_user_id:
+            # 如果没有 run_id，无法确定目标用户
+            return 
 
-        target_connections = self.user_connections.get(str(self.current_user_id), [])
+        target_connections = self.user_connections.get(str(target_user_id), [])
         
         dead_connections = []
         for ws in target_connections:
@@ -132,19 +161,7 @@ class RunState:
         
         # Cleanup
         for ws in dead_connections:
-            self.remove_connection(str(self.current_user_id), ws)
-    
-    def reset(self, run_id: str, user_id: str):
-        self.current_run_id = run_id
-        self.current_user_id = str(user_id)
-        self.status = "running"
-        self.phase = "初始化"
-        self.progress = 0
-        self.output = None
-        self.report_structured = None
-        self.signals = []
-        self.charts = {}
-        self.transmission_graph = {}
+            self.remove_connection(str(target_user_id), ws)
 
 run_state = RunState()
 
@@ -233,36 +250,32 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
         )
 
         if is_user_task_running:
-            # Sync user ID to run state if needed
-            # Critical Fix: Ensure in-memory state matches DB state on reconnection
-            # If DB says running but memory doesn't match, we might have lost context or it's a zombie.
-            # But if the server hasn't restarted, memory *should* be there.
-            # We force re-attach context just in case.
-            if run_state.current_run_id != running_task.run_id:
-                logger.warning(f"🔄 Re-syncing run_state from DB: {running_task.run_id}")
-                run_state.current_run_id = running_task.run_id
-                run_state.current_user_id = user_id
-                run_state.status = running_task.status
-                # Attempt to recover last progress/phase if possible (or keep default)
-
-            if run_state.current_run_id == running_task.run_id:
-                run_state.current_user_id = user_id
-
+            # 用户有一个正在运行的任务，获取对应的 RunContext
+            ctx = run_state.get_run(running_task.run_id)
+            
+            # 如果内存中没有，尝试从 DB 加载
+            if not ctx:
+                logger.warning(f"🔄 RunContext not found for {running_task.run_id}, creating placeholder")
+                ctx = run_state.create_context(running_task.run_id, user_id)
+                ctx.status = running_task.status
+            
             steps = db.get_steps(running_task.run_id, limit=100)
             valid_charts = {
-                k: v for k, v in run_state.charts.items()
+                k: v for k, v in ctx.charts.items()
                 if v and isinstance(v.get("prices"), list) and len(v.get("prices", [])) > 0
             }
             await websocket.send_json({
                 "type": "init",
                 "data": {
                     "run_id": running_task.run_id,
-                    "status": running_task.status,
+                    "status": ctx.status,
                     "query": running_task.query,
+                    "phase": ctx.phase,
+                    "progress": ctx.progress,
                     "steps": [s.model_dump() for s in steps],
-                    "signals": run_state.signals,  # Note: If server restarted, this is empty. Ideally load from DB json.
+                    "signals": ctx.signals,
                     "charts": valid_charts,
-                    "graph": run_state.transmission_graph
+                    "graph": ctx.transmission_graph
                 }
             })
         else:
@@ -320,36 +333,45 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                         })
             
             elif msg.get("command") == "get_status":
-                # Only show status if it's THIS user's run
+                # 查找该用户的活跃 run
                 from .integration import workflow_runner
                 
-                is_active = (run_state.current_user_id == user_id)
+                user_active_run_id = None
+                for rid, uid in run_state.active_run_owners.items():
+                    if str(uid) == user_id and workflow_runner.is_running(rid):
+                        user_active_run_id = rid
+                        break
                 
-                if is_active:
-                    steps = []
-                    if run_state.current_run_id:
-                        db_steps = db.get_steps(run_state.current_run_id)
+                if user_active_run_id:
+                    ctx = run_state.get_run(user_active_run_id)
+                    if ctx:
+                        db_steps = db.get_steps(user_active_run_id)
                         steps = [s.model_dump() for s in db_steps]
 
-                    valid_charts = {
-                        k: v for k, v in run_state.charts.items()
-                        if v and isinstance(v.get("prices"), list) and len(v.get("prices", [])) > 0
-                    }
-                    
-                    await websocket.send_json({
-                        "type": "init",
-                        "data": {
-                            "run_id": run_state.current_run_id,
-                            "status": run_state.status,
-                            "phase": run_state.phase,
-                            "progress": run_state.progress,
-                            "steps": steps,
-                            "signals": run_state.signals,
-                            "charts": valid_charts,
-                            "graph": run_state.transmission_graph,
-                            "is_running": workflow_runner.is_running()
+                        valid_charts = {
+                            k: v for k, v in ctx.charts.items()
+                            if v and isinstance(v.get("prices"), list) and len(v.get("prices", [])) > 0
                         }
-                    })
+                        
+                        await websocket.send_json({
+                            "type": "init",
+                            "data": {
+                                "run_id": user_active_run_id,
+                                "status": ctx.status,
+                                "phase": ctx.phase,
+                                "progress": ctx.progress,
+                                "steps": steps,
+                                "signals": ctx.signals,
+                                "charts": valid_charts,
+                                "graph": ctx.transmission_graph,
+                                "is_running": True
+                            }
+                        })
+                    else:
+                        await websocket.send_json({
+                            "type": "init",
+                            "data": {"status": "idle", "is_running": False}
+                        })
                 else:
                      await websocket.send_json({
                         "type": "init",
@@ -419,9 +441,9 @@ async def start_run(request: RunRequest, current_user: dict = Depends(get_curren
     """启动新的分析任务"""
     db = get_db()
     
-    # 检查是否有正在运行的任务 (双重检查: 内存状态 + 数据库)
-    if run_state.status == "running":
-        raise HTTPException(400, f"已有任务正在运行: {run_state.run_id}")
+    # Concurrency enabled: We no longer block if tasks are running.
+    # if run_state.status == "running":
+    #     raise HTTPException(400, f"已有任务正在运行: {run_state.run_id}")
     
     # 清理数据库中的僵尸运行记录 (服务器重启后遗留的 running 状态)
     stale_running = db.get_running_task()
@@ -453,58 +475,85 @@ async def start_run(request: RunRequest, current_user: dict = Depends(get_curren
             run.parent_run_id = latest.run_id
     db.create_run(run)
     
-    # 重置状态
-    run_state.reset(run_id, current_user['id'])
+    # 创建运行上下文
+    run_state.create_context(run_id, current_user['id'])
     
     # 启动工作流
-    asyncio.create_task(execute_workflow(run_id, request))
+    # 启动工作流
+    asyncio.create_task(execute_workflow(run_id, request, user_id=current_user['id']))
     
     return RunResponse(run_id=run_id, status="started", query=request.query)
 
 
 @app.get("/api/status")
-async def get_status():
-    """获取当前状态"""
+async def get_status(run_id: Optional[str] = None, current_user: dict = Depends(get_current_user)):
+    """获取当前状态（支持多并发）"""
     from .integration import workflow_runner
+    
+    user_id = str(current_user['id'])
+    target_run_id = run_id
+    
+    # 如果没有指定 run_id，查找用户的活跃 run
+    if not target_run_id:
+        for rid, uid in run_state.active_run_owners.items():
+            if str(uid) == user_id and workflow_runner.is_running(rid):
+                target_run_id = rid
+                break
+    
+    if target_run_id:
+        ctx = run_state.get_run(target_run_id)
+        if ctx:
+            return {
+                "run_id": target_run_id,
+                "status": ctx.status,
+                "phase": ctx.phase,
+                "progress": ctx.progress,
+                "signal_count": len(ctx.signals),
+                "chart_count": len(ctx.charts),
+                "is_running": workflow_runner.is_running(target_run_id),
+                "is_cancelled": workflow_runner.is_cancelled(target_run_id)
+            }
+    
     return {
-        "run_id": run_state.current_run_id,
-        "status": run_state.status,
-        "phase": run_state.phase,
-        "progress": run_state.progress,
-        "signal_count": len(run_state.signals),
-        "chart_count": len(run_state.charts),
-        "is_running": workflow_runner.is_running(),
-        "is_cancelled": workflow_runner.is_cancelled()
+        "run_id": None,
+        "status": "idle",
+        "phase": "",
+        "progress": 0,
+        "signal_count": 0,
+        "chart_count": 0,
+        "is_running": False,
+        "is_cancelled": False
     }
 
 
 @app.post("/api/run/cancel")
-async def cancel_run():
-    """取消当前运行的工作流"""
+async def cancel_run(current_user: dict = Depends(get_current_user)):
+    """取消当前用户正在运行的工作流"""
     from .integration import workflow_runner
     
-    # 检查实际工作流状态
-    if workflow_runner.is_running():
-        if workflow_runner.cancel():
-            run_state.status = "cancelling"
+    user_id = str(current_user['id'])
+    target_run_id = None
+    
+    # 查找用户的活跃 run
+    for rid, uid in run_state.active_run_owners.items():
+        if str(uid) == user_id and workflow_runner.is_running(rid):
+            target_run_id = rid
+            break
+    
+    if target_run_id:
+        if workflow_runner.cancel(target_run_id):
+            # 更新 RunContext 状态
+            ctx = run_state.get_run(target_run_id)
+            if ctx:
+                ctx.status = "cancelling"
+                
             await run_state.broadcast({
                 "type": "status",
-                "data": {"status": "cancelling", "message": "正在取消..."}
+                "data": {"status": "cancelling", "message": "正在取消...", "run_id": target_run_id}
             })
-            return {"success": True, "message": "已发送取消请求"}
-        return {"success": False, "message": "取消失败"}
-    
-    # 工作流未运行，但前端状态可能过期 - 重置状态
-    if run_state.status == "running":
-        logger.warning("⚠️ Frontend state was stale (running), resetting to idle")
-        run_state.status = "idle"
-        await run_state.broadcast({
-            "type": "status", 
-            "data": {"status": "idle", "message": "状态已重置"}
-        })
-        return {"success": True, "message": "状态已重置（无运行中任务）"}
-    
-    return {"success": False, "message": "没有正在运行的任务"}
+            return {"success": True, "message": "已发送取消请求", "run_id": target_run_id}
+            
+    return {"success": False, "message": "未找到您正在运行的任务"}
 
 
 @app.get("/api/history", response_model=List[HistoryItem])
@@ -762,8 +811,9 @@ async def update_run_endpoint(run_id: str, request: RunRequest, current_user: di
     db = get_db()
     
     # Check current running state
-    if run_state.status == "running":
-        raise HTTPException(400, "已有任务正在运行，请稍候")
+    # Concurrency: allow multiple
+    # if run_state.status == "running":
+    #     raise HTTPException(400, "已有任务正在运行，请稍候")
 
     old_run = db.get_run(run_id)
     if not old_run:
@@ -778,7 +828,8 @@ async def update_run_endpoint(run_id: str, request: RunRequest, current_user: di
     
     # Generate the REAL ID here to ensure alignment
     new_run_id = datetime.now().strftime('%Y%m%d_%H%M%S')
-    run_state.reset(new_run_id, current_user['id'])
+    # 创建运行上下文
+    run_state.create_context(new_run_id, current_user['id'])
 
     # Create run record upfront so UI/DB can track status
     new_run = DashboardRun(
@@ -792,7 +843,7 @@ async def update_run_endpoint(run_id: str, request: RunRequest, current_user: di
     )
     db.create_run(new_run)
     
-    asyncio.create_task(execute_update_workflow(run_id, request.query, new_run_id))
+    asyncio.create_task(execute_update_workflow(run_id, request.query, new_run_id, user_id=str(current_user['id'])))
     return {"message": "Update started", "base_run_id": run_id, "run_id": new_run_id}
 
 
@@ -864,23 +915,34 @@ async def get_chart_dynamic(filename: str):
         logger.error(f"Failed to process chart {filename}: {e}")
         return FileResponse(file_path)
 
-async def execute_update_workflow(base_run_id: str, user_query: Optional[str], new_run_id: str):
+async def execute_update_workflow(base_run_id: str, user_query: Optional[str], new_run_id: str, user_id: str = None):
     """Execute update logic"""
     from .integration import dashboard_callback, workflow_runner
     db = get_db()
     loop = asyncio.get_event_loop()
     
+    # 获取当前运行上下文
+    ctx = run_state.get_run(new_run_id)
+    if not ctx:
+        ctx = run_state.create_context(new_run_id, user_id or "unknown")
+    
     async def async_broadcast(message: dict):
         msg_type = message.get("type")
         data = message.get("data", {})
+        
+        # 从消息中获取 run_id 以支持并发
+        msg_run_id = data.get("run_id") or new_run_id
+        msg_ctx = run_state.get_run(msg_run_id)
+        if not msg_ctx:
+            msg_ctx = ctx
 
         if msg_type == "progress":
-            run_state.phase = data.get("phase", "")
-            run_state.progress = data.get("progress", 0)
+            msg_ctx.phase = data.get("phase", "")
+            msg_ctx.progress = data.get("progress", 0)
         elif msg_type == "step":
-            # Save steps to DB for update runs
+            step_run_id = data.get("run_id") or new_run_id
             step = DashboardStep(
-                run_id=new_run_id,
+                run_id=step_run_id,
                 step_type=data.get("type", ""),
                 agent=data.get("agent", ""),
                 content=data.get("content", ""),
@@ -893,15 +955,16 @@ async def execute_update_workflow(base_run_id: str, user_query: Optional[str], n
     dashboard_callback.enable(async_broadcast, loop)
     
     try:
-        run_state.status = "running"
+        ctx.status = "running"
         workflow_runner.update_run_async(
             base_run_id, 
-            run_state=run_state, 
+            run_state=ctx, 
             user_query=user_query, 
-            new_run_id=new_run_id
+            new_run_id=new_run_id,
+            user_id=user_id
         )
         
-        while workflow_runner.is_running():
+        while workflow_runner.is_running(new_run_id):
             await asyncio.sleep(0.5)
             
         # Post-processing: Sync the newly created run to SQLite
@@ -972,8 +1035,8 @@ async def execute_update_workflow(base_run_id: str, user_query: Optional[str], n
                 signal_count=len(signals)
             )
 
-            run_state.output = state.get("output")
-            run_state.status = "completed"
+            ctx.output = state.get("output")
+            ctx.status = "completed"
             await run_state.broadcast({
                 "type": "completed",
                 "data": {"run_id": new_run_id, "parent_run_id": base_run_id}
@@ -983,35 +1046,46 @@ async def execute_update_workflow(base_run_id: str, user_query: Optional[str], n
             logger.error(f"Failed to sync update to DB: {e}")
         
     except Exception as e:
-        run_state.status = "failed"
-        await run_state.broadcast({"type": "error", "data": {"message": str(e)}})
+        ctx.status = "failed"
+        await run_state.broadcast({"type": "error", "data": {"message": str(e), "run_id": new_run_id}})
     finally:
-        dashboard_callback.disable()
-        if run_state.status == "running":
-            run_state.status = "idle"
+        # Only disable callback if NO workflows are running (to support concurrency)
+        if not workflow_runner.is_running():
+            dashboard_callback.disable()
 
 
 # ============ 工作流执行 ============
-async def execute_workflow(run_id: str, request: RunRequest):
+async def execute_workflow(run_id: str, request: RunRequest, user_id: str = None):
     """执行真实的 AlphaEar 工作流"""
     from .integration import dashboard_callback, workflow_runner
     
     db = get_db()
     loop = asyncio.get_event_loop()
     
+    # 获取当前运行上下文
+    ctx = run_state.get_run(run_id)
+    if not ctx:
+        ctx = run_state.create_context(run_id, user_id or "unknown")
+    
     async def async_broadcast(message: dict):
         """处理回调消息并广播"""
         msg_type = message.get("type")
         data = message.get("data", {})
         
+        # 从消息中获取 run_id 以支持并发
+        msg_run_id = data.get("run_id") or run_id
+        msg_ctx = run_state.get_run(msg_run_id)
+        if not msg_ctx:
+            msg_ctx = ctx  # fallback
+        
         if msg_type == "progress":
-            run_state.phase = data.get("phase", "")
-            run_state.progress = data.get("progress", 0)
+            msg_ctx.phase = data.get("phase", "")
+            msg_ctx.progress = data.get("progress", 0)
         
         elif msg_type == "step":
-            # 保存到数据库
+            step_run_id = data.get("run_id") or run_id
             step = DashboardStep(
-                run_id=run_id,
+                run_id=step_run_id,
                 step_type=data.get("type", ""),
                 agent=data.get("agent", ""),
                 content=data.get("content", ""),
@@ -1020,24 +1094,24 @@ async def execute_workflow(run_id: str, request: RunRequest):
             db.add_step(step)
         
         elif msg_type == "signal":
-            run_state.signals.append(data)
+            msg_ctx.signals.append(data)
         
         elif msg_type == "chart":
             ticker = data.get("ticker")
             if ticker:
-                run_state.charts[ticker] = data
+                msg_ctx.charts[ticker] = data
         
         elif msg_type == "graph":
-            run_state.transmission_graph = data
+            msg_ctx.transmission_graph = data
         
-        # 广播到所有客户端
+        # 广播到对应用户
         await run_state.broadcast(message)
     
     # 启用回调
     dashboard_callback.enable(async_broadcast, loop)
     
     try:
-        run_state.status = "running"
+        ctx.status = "running"
         
         # 在后台线程启动工作流
         sources_value = request.sources
@@ -1052,11 +1126,13 @@ async def execute_workflow(run_id: str, request: RunRequest):
             sources=sources_list,
             wide=request.wide,
             depth=request.depth,
-            run_state=run_state
+            run_state=ctx,  # 传递 RunContext 而非全局 run_state
+            user_id=user_id,
+            run_id=run_id
         )
         
         # 等待工作流完成
-        while workflow_runner.is_running():
+        while workflow_runner.is_running(run_id):
             await asyncio.sleep(0.5)
         
         # 更新数据库
@@ -1064,28 +1140,28 @@ async def execute_workflow(run_id: str, request: RunRequest):
             run_id,
             status="completed",
             finished_at=datetime.now().isoformat(),
-            signal_count=len(run_state.signals),
-            report_path=run_state.output
+            signal_count=len(ctx.signals),
+            report_path=ctx.output
         )
         
         # 保存结构化数据 (用于交互式渲染和对比)
-        logger.info(f"📊 Saving run data: {len(run_state.signals)} signals, {len(run_state.charts)} charts")
+        logger.info(f"📊 Saving run data: {len(ctx.signals)} signals, {len(ctx.charts)} charts")
         run_data = {
-            "signals": run_state.signals,
-            "charts": run_state.charts,
-            "graph": run_state.transmission_graph,
-            "report_structured": run_state.report_structured
+            "signals": ctx.signals,
+            "charts": ctx.charts,
+            "graph": ctx.transmission_graph,
+            "report_structured": ctx.report_structured
         }
         db.save_run_data(run_id, run_data)
         
-        run_state.status = "completed"
+        ctx.status = "completed"
         
         # 广播完成
         await run_state.broadcast({
             "type": "completed",
             "data": {
                 "run_id": run_id,
-                "signal_count": len(run_state.signals)
+                "signal_count": len(ctx.signals)
             }
         })
         
@@ -1096,15 +1172,17 @@ async def execute_workflow(run_id: str, request: RunRequest):
             finished_at=datetime.now().isoformat(),
             error_message=str(e)
         )
-        run_state.status = "failed"
+        ctx.status = "failed"
         
         await run_state.broadcast({
             "type": "error",
-            "data": {"message": str(e)}
+            "data": {"message": str(e), "run_id": run_id}
         })
     
     finally:
-        dashboard_callback.disable()
+        # 只在没有其他工作流运行时禁用回调
+        if not workflow_runner.is_running():
+            dashboard_callback.disable()
 
 
 # ============ 静态文件服务 ============
