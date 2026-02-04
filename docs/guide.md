@@ -1,4 +1,4 @@
-# AlphaEar 架构与执行指南 (Architecture & Execution Guide)
+# DeepEar 架构与执行指南 (Architecture & Execution Guide)
 
 本项目是一个基于多智能体（Multi-Agent）协作的金融情报系统。它通过捕捉全网热点（新闻/社交媒体），提取潜在金融信号，结合实时股价数据进行深度分析，并最终生成具备可视化图表的专业研报。
 
@@ -6,7 +6,7 @@
 
 ## 1. 架构概览 (Architecture Overview)
 
-AlphaEar 采用**分层架构**设计，确保了工具集（Tools）、大脑（Agents）与工作流（Workflow）的解耦。
+DeepEar 采用**分层架构**设计，确保了工具集（Tools）、大脑（Agents）与工作流（Workflow）的解耦。
 
 ### 1.1 三层架构模型
 1.  **工作流层 (Workflow Layer - `main_flow.py`)**: 
