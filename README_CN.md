@@ -152,16 +152,17 @@ DeepEar 可以作为一种专有技能（Skill）集成到各种 AI Agent 框架
    ```
 
 2. **Skill 安装路径参考**
-  | 框架 | 作用域 | 安装路径 |
-  |:-----|:-------|:---------|
-  | **Antigravity** | 工作区 | `<workspace>/.agent/skills/<skill>/` |
-  | | 全局 | `~/.gemini/antigravity/global_skills/<skill>/` |
-  | **OpenCode** | 项目 | `.opencode/skills/<skill>/` 或 `.claude/skills/<skill>/` |
-  | | 全局 | `~/.config/opencode/skills/<skill>/` |
-  | **OpenClaw** | 工作区 | `<workspace>/skills`（优先级最高） |
-  | | 托管 | `~/.openclaw/skills` |
-  | **Claude Code / Codex** | 个人 | `~/.claude/skills/` 或 `~/.codex/skills/` |
-  | | 项目 | `.claude/skills/` |
+
+| 框架 | 作用域 | 安装路径 |
+|:-----|:-------|:---------|
+| **Antigravity** | 工作区 | `<workspace>/.agent/skills/<skill>/` |
+| | 全局 | `~/.gemini/antigravity/global_skills/<skill>/` |
+| **OpenCode** | 项目 | `.opencode/skills/<skill>/` 或 `.claude/skills/<skill>/` |
+| | 全局 | `~/.config/opencode/skills/<skill>/` |
+| **OpenClaw** | 工作区 | `<workspace>/skills`（优先级最高） |
+| | 托管 | `~/.openclaw/skills` |
+| **Claude Code / Codex** | 个人 | `~/.claude/skills/` 或 `~/.codex/skills/` |
+| | 项目 | `.claude/skills/` |
 
 3. **启动 Skill 服务**
    ```bash

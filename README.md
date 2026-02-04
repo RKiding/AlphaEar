@@ -151,16 +151,17 @@ DeepEar can be integrated into various AI agent frameworks (like Antigravity, Op
    ```
 
 2. **Skill Installation Paths**
-  | Framework | Scope | Installation Path |
-  |:----------|:------|:------------------|
-  | **Antigravity** | Workspace | `<workspace>/.agent/skills/<skill>/` |
-  | | Global | `~/.gemini/antigravity/global_skills/<skill>/` |
-  | **OpenCode** | Project | `.opencode/skills/<skill>/` or `.claude/skills/<skill>/` |
-  | | Global | `~/.config/opencode/skills/<skill>/` |
-  | **OpenClaw** | Workspace | `<workspace>/skills` (highest priority) |
-  | | Managed | `~/.openclaw/skills` |
-  | **Claude Code / Codex** | Personal | `~/.claude/skills/` or `~/.codex/skills/` |
-  | | Project | `.claude/skills/` |
+
+| Framework | Scope | Installation Path |
+|:----------|:------|:------------------|
+| **Antigravity** | Workspace | `<workspace>/.agent/skills/<skill>/` |
+| | Global | `~/.gemini/antigravity/global_skills/<skill>/` |
+| **OpenCode** | Project | `.opencode/skills/<skill>/` or `.claude/skills/<skill>/` |
+| | Global | `~/.config/opencode/skills/<skill>/` |
+| **OpenClaw** | Workspace | `<workspace>/skills` (highest priority) |
+| | Managed | `~/.openclaw/skills` |
+| **Claude Code / Codex** | Personal | `~/.claude/skills/` or `~/.codex/skills/` |
+| | Project | `.claude/skills/` |
 
 3. **Start the Skill Server**
    ```bash
