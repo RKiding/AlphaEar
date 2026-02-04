@@ -183,7 +183,7 @@ def get_news_tools() -> NewsNowTools:
 async def lifespan(app: FastAPI):
     print("""
     ╔═══════════════════════════════════════════════════════════╗
-    ║   AlphaEar Dashboard - Real Agent Mode                    ║
+    ║   DeepEar Dashboard - Real Agent Mode                     ║
     ╠═══════════════════════════════════════════════════════════╣
     ║  🌐 Dashboard: http://localhost:8765                      ║
     ║  📡 WebSocket: ws://localhost:8765/ws                     ║
@@ -198,7 +198,7 @@ async def lifespan(app: FastAPI):
     print("👋 Dashboard shutting down")
 
 
-app = FastAPI(title="AlphaEar Dashboard", lifespan=lifespan)
+app = FastAPI(title="DeepEar Dashboard", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,

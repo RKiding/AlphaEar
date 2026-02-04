@@ -142,7 +142,7 @@ export function useWebSocket() {
                 wsRef.current?.send(JSON.stringify({ command: 'get_query_groups' }))
                 // 浏览器通知
                 if (Notification.permission === 'granted') {
-                    new Notification('AlphaEar 分析完成', {
+                    new Notification('DeepEar 分析完成', {
                         body: `发现 ${msg.data.signal_count} 个信号`,
                         icon: '/favicon.ico'
                     })

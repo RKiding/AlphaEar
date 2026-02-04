@@ -61,7 +61,7 @@ export function Login() {
     return (
         <div className="auth-container">
             <div className="auth-card">
-                <div className="auth-title">AlphaEar</div>
+                <div className="auth-title">DeepEar</div>
                 <div className="auth-subtitle">Sign in to your account</div>
 
                 {error && <div className="error-message">{error}</div>}

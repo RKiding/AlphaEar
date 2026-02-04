@@ -268,9 +268,9 @@ export function Dashboard() {
             <header className="header">
                 <div className="logo">
                     <div className="logo-icon">
-                        <img src="/alphaear.svg" alt="AlphaEar" width={24} height={24} />
+                        <img src="/deepear.svg" alt="DeepEar" width={24} height={24} />
                     </div>
-                    <span className="logo-text">AlphaEar</span>
+                    <span className="logo-text">DeepEar</span>
                 </div>
                 <div className="header-right">
                     {user && (

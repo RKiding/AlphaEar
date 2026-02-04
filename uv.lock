@@ -177,71 +177,6 @@ wheels = [
 ]
 
 [[package]]
-name = "alphaear"
-version = "0.1.0"
-source = { virtual = "." }
-dependencies = [
-    { name = "agno" },
-    { name = "akshare" },
-    { name = "baidusearch" },
-    { name = "ddgs" },
-    { name = "einops" },
-    { name = "fastapi" },
-    { name = "huggingface-hub" },
-    { name = "jieba" },
-    { name = "loguru" },
-    { name = "markdown" },
-    { name = "matplotlib" },
-    { name = "numpy" },
-    { name = "ollama" },
-    { name = "openai" },
-    { name = "pandas" },
-    { name = "passlib", extra = ["argon2"] },
-    { name = "pycountry" },
-    { name = "pyecharts" },
-    { name = "pytest" },
-    { name = "python-dotenv" },
-    { name = "python-jose", extra = ["cryptography"] },
-    { name = "rank-bm25" },
-    { name = "scikit-learn" },
-    { name = "sentence-transformers" },
-    { name = "torch" },
-    { name = "transformers" },
-    { name = "uvicorn", extra = ["standard"] },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "agno", specifier = ">=2.3.21" },
-    { name = "akshare", specifier = ">=1.18.3" },
-    { name = "baidusearch", specifier = ">=1.0.3" },
-    { name = "ddgs", specifier = ">=9.10.0" },
-    { name = "einops", specifier = ">=0.8.1" },
-    { name = "fastapi", specifier = ">=0.115.0" },
-    { name = "huggingface-hub", specifier = ">=0.36.0" },
-    { name = "jieba", specifier = ">=0.42.1" },
-    { name = "loguru", specifier = ">=0.7.3" },
-    { name = "markdown", specifier = ">=3.10" },
-    { name = "matplotlib", specifier = ">=3.10.8" },
-    { name = "numpy", specifier = ">=2.4.0" },
-    { name = "ollama", specifier = ">=0.6.1" },
-    { name = "openai", specifier = ">=2.14.0" },
-    { name = "pandas", specifier = ">=2.3.3" },
-    { name = "passlib", extras = ["argon2"], specifier = ">=1.7.4" },
-    { name = "pycountry", specifier = ">=24.6.1" },
-    { name = "pyecharts", specifier = ">=2.0.9" },
-    { name = "pytest", specifier = ">=9.0.2" },
-    { name = "python-dotenv", specifier = ">=1.2.1" },
-    { name = "python-jose", extras = ["cryptography"], specifier = ">=3.5.0" },
-    { name = "rank-bm25", specifier = ">=0.2.2" },
-    { name = "scikit-learn", specifier = ">=1.8.0" },
-    { name = "sentence-transformers", specifier = ">=5.2.0" },
-    { name = "torch", specifier = ">=2.9.1" },
-    { name = "transformers", specifier = ">=4.57.3" },
-    { name = "uvicorn", extras = ["standard"], specifier = ">=0.32.0" },
-]
-
-[[package]]
 name = "annotated-doc"
 version = "0.0.4"
 source = { registry = "https://pypi.org/simple" }
@@ -727,6 +662,71 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/43/fa/6d96a0978d19e17b68d634497769987b16c8f4cd0a7a05048bec693caa6b/decorator-5.2.1.tar.gz", hash = "sha256:65f266143752f734b0a7cc83c46f4618af75b8c5911b00ccb61d0ac9b6da0360", size = 56711, upload-time = "2025-02-24T04:41:34.073Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/4e/8c/f3147f5c4b73e7550fe5f9352eaa956ae838d5c51eb58e7a25b9f3e2643b/decorator-5.2.1-py3-none-any.whl", hash = "sha256:d316bb415a2d9e2d2b3abcc4084c6502fc09240e292cd76a76afc106a1c8e04a", size = 9190, upload-time = "2025-02-24T04:41:32.565Z" },
+]
+
+[[package]]
+name = "deepear"
+version = "0.1.0"
+source = { virtual = "." }
+dependencies = [
+    { name = "agno" },
+    { name = "akshare" },
+    { name = "baidusearch" },
+    { name = "ddgs" },
+    { name = "einops" },
+    { name = "fastapi" },
+    { name = "huggingface-hub" },
+    { name = "jieba" },
+    { name = "loguru" },
+    { name = "markdown" },
+    { name = "matplotlib" },
+    { name = "numpy" },
+    { name = "ollama" },
+    { name = "openai" },
+    { name = "pandas" },
+    { name = "passlib", extra = ["argon2"] },
+    { name = "pycountry" },
+    { name = "pyecharts" },
+    { name = "pytest" },
+    { name = "python-dotenv" },
+    { name = "python-jose", extra = ["cryptography"] },
+    { name = "rank-bm25" },
+    { name = "scikit-learn" },
+    { name = "sentence-transformers" },
+    { name = "torch" },
+    { name = "transformers" },
+    { name = "uvicorn", extra = ["standard"] },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "agno", specifier = ">=2.3.21" },
+    { name = "akshare", specifier = ">=1.18.3" },
+    { name = "baidusearch", specifier = ">=1.0.3" },
+    { name = "ddgs", specifier = ">=9.10.0" },
+    { name = "einops", specifier = ">=0.8.1" },
+    { name = "fastapi", specifier = ">=0.115.0" },
+    { name = "huggingface-hub", specifier = ">=0.36.0" },
+    { name = "jieba", specifier = ">=0.42.1" },
+    { name = "loguru", specifier = ">=0.7.3" },
+    { name = "markdown", specifier = ">=3.10" },
+    { name = "matplotlib", specifier = ">=3.10.8" },
+    { name = "numpy", specifier = ">=2.4.0" },
+    { name = "ollama", specifier = ">=0.6.1" },
+    { name = "openai", specifier = ">=2.14.0" },
+    { name = "pandas", specifier = ">=2.3.3" },
+    { name = "passlib", extras = ["argon2"], specifier = ">=1.7.4" },
+    { name = "pycountry", specifier = ">=24.6.1" },
+    { name = "pyecharts", specifier = ">=2.0.9" },
+    { name = "pytest", specifier = ">=9.0.2" },
+    { name = "python-dotenv", specifier = ">=1.2.1" },
+    { name = "python-jose", extras = ["cryptography"], specifier = ">=3.5.0" },
+    { name = "rank-bm25", specifier = ">=0.2.2" },
+    { name = "scikit-learn", specifier = ">=1.8.0" },
+    { name = "sentence-transformers", specifier = ">=5.2.0" },
+    { name = "torch", specifier = ">=2.9.1" },
+    { name = "transformers", specifier = ">=4.57.3" },
+    { name = "uvicorn", extras = ["standard"], specifier = ">=0.32.0" },
 ]
 
 [[package]]

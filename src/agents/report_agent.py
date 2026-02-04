@@ -1101,7 +1101,7 @@ class ReportAgent:
             cleaned_sections.append(section_fixed)
         
         # Use simple string concatenation or 0-indented string to avoid dedent issues with dynamic content
-        final_report = f"""# AlphaEar 全球市场趋势日报 ({current_date})
+        final_report = f"""# DeepEar 全球市场趋势日报 ({current_date})
 
 [TOC]
 

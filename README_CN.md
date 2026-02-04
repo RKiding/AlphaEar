@@ -1,4 +1,4 @@
-# AlphaEar ｜ 顺风耳
+# DeepEar ｜ 顺风耳
 
 <div align="center">
   <p>
@@ -8,7 +8,7 @@
 
 <div align="center">
   <!-- Logo -->
-  <img src="assets/logo.svg" alt="AlphaEar Logo" width="200">
+  <img src="assets/logo.svg" alt="DeepEar Logo" width="200">
   
   <p>
     一个可扩展的开源框架，用于从新闻和社交媒体中提取金融信号。
@@ -45,7 +45,7 @@
 
 ## 🎯 适用场景
 
-AlphaEar 专为金融分析师、量化研究员和个人投资者设计，旨在弥合非结构化信息与可操作交易信号之间的鸿沟。
+DeepEar 专为金融分析师、量化研究员和个人投资者设计，旨在弥合非结构化信息与可操作交易信号之间的鸿沟。
 
 - **投研自动化**: 自动收集和分析来自社交媒体与新闻媒体的碎片化信息，发现隐藏的投资机会。
 - **市场监控**: 实时跟踪“热点话题”（如政策转向、技术突破）及其对特定板块或个股的潜在影响。
@@ -77,8 +77,8 @@ AlphaEar 专为金融分析师、量化研究员和个人投资者设计，旨�
 
 1.  **克隆仓库**
     ```bash
-    git clone https://github.com/your-username/AlphaEar.git
-    cd AlphaEar
+    git clone https://github.com/your-username/DeepEar.git
+    cd DeepEar
     ```
 
 2.  **安装依赖**
@@ -95,13 +95,13 @@ AlphaEar 专为金融分析师、量化研究员和个人投资者设计，旨�
     ```
 
 2.  **编辑 `.env`**
-    填入你的 API Keys。AlphaEar 支持多种模型提供商：
+    填入你的 API Keys。DeepEar 支持多种模型提供商：
     - `LLM_PROVIDER`: `openrouter`, `openai`, `ollama`, `deepseek` 等。
     - `REASONING_MODEL_ID`: 用于复杂分析的模型 (推荐 `gpt-4o`)。
     - `TOOL_MODEL_ID`: 用于工具调用的模型 (推荐 `qwen2.5`)。
     - `JINA_API_KEY`: (可选) 统一的 Jina API Key，同时支持搜索 (s.jina.ai) 和内容提取 (r.jina.ai)。
 
-### 运行 AlphaEar
+### 运行 DeepEar
 
 #### 方式 1：启动仪表盘（推荐）
 启动 Web 界面以可视化方式监控和控制智能体：
@@ -142,7 +142,7 @@ uv run src/main_flow.py
 
 ## 🏗 系统架构
 
-AlphaEar 采用分层架构设计，确保工具、智能体与工作流逻辑的解耦。
+DeepEar 采用分层架构设计，确保工具、智能体与工作流逻辑的解耦。
 
 ```mermaid
 graph TD
@@ -179,7 +179,7 @@ graph TD
 ```
 
 ## 🧠 新闻感知 Kronos 模型
-AlphaEar 的核心创新之一是在 Kronos 基础模型中集成了**少样本新闻投影层 (few-shot news-projection layer)**。这使得系统不仅能基于历史价格进行预测，还能理解新闻事件对市场的量化冲击。
+DeepEar 的核心创新之一是在 Kronos 基础模型中集成了**少样本新闻投影层 (few-shot news-projection layer)**。这使得系统不仅能基于历史价格进行预测，还能理解新闻事件对市场的量化冲击。
 
 <div align="center">
   <img src="assets/news_bias.png" alt="新闻偏差注入机制" width="600">
@@ -209,7 +209,7 @@ AlphaEar 的核心创新之一是在 Kronos 基础模型中集成了**少样本�
 
 ### 项目结构
 ```
-AlphaEar/
+DeepEar/
 ├── config/             # 预设配置文件
 ├── docs/               # 文档与指南
 ├── reports/            # 生成的报告
@@ -289,13 +289,13 @@ uv run pytest src/tests/
 如果您觉得这个项目对您的研究或应用有所帮助，请考虑引用：
 
 ```bibtex
-@misc{alpha_ear_2026,
+@misc{deep_ear_2026,
   author = {Runke Ruan},
-  title = {AlphaEar: An Extensible Framework for Financial Signal Extraction and News-Aware Forecasting},
+  title = {DeepEar: An Extensible Framework for Financial Signal Extraction and News-Aware Forecasting},
   year = {2026},
   publisher = {GitHub},
   journal = {GitHub Repository},
-  howpublished = {\url{https://github.com/rkiding/AlphaEar}}
+  howpublished = {\url{https://github.com/rkiding/DeepEar}}
 }
 ```
 

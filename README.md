@@ -1,4 +1,4 @@
-# AlphaEar ｜ 顺风耳
+# DeepEar ｜ 顺风耳
 
 <div align="center">
   <p>
@@ -8,7 +8,7 @@
 
 <div align="center">
   <!-- Logo -->
-  <img src="assets/logo.svg" alt="AlphaEar Logo" width="200">
+  <img src="assets/logo.svg" alt="DeepEar Logo" width="200">
   
   <p>
     An extensible, open-source framework for extracting financial signals from news and social media.
@@ -44,7 +44,7 @@ Click the preview below to see some generated sample reports:
 
 ## 🎯 When to Use
 
-AlphaEar is designed for financial analysts, quantitative researchers, and individual investors who need to bridge the gap between unstructured information and actionable trading signals.
+DeepEar is designed for financial analysts, quantitative researchers, and individual investors who need to bridge the gap between unstructured information and actionable trading signals.
 
 - **Investment Research**: Automate the collection and analysis of fragmented information from social media and news outlets to discover hidden investment opportunities.
 - **Market Monitoring**: Real-time tracking of "hot topics" (e.g., policy shifts, industry breakthroughs) and their potential impact on specific sectors or stocks.
@@ -76,8 +76,8 @@ AlphaEar is designed for financial analysts, quantitative researchers, and indiv
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/your-username/AlphaEar.git
-   cd AlphaEar
+   git clone https://github.com/your-username/DeepEar.git
+   cd DeepEar
    ```
 
 2. **Install dependencies**
@@ -94,13 +94,13 @@ AlphaEar is designed for financial analysts, quantitative researchers, and indiv
    ```
 
 2. **Edit `.env`**
-   Open `.env` and fill in your API keys. AlphaEar supports a wide range of providers:
+   Open `.env` and fill in your API keys. DeepEar supports a wide range of providers:
    - `LLM_PROVIDER`: `openrouter`, `openai`, `ollama`, `deepseek`, etc.
    - `REASONING_MODEL_ID`: Model for complex analysis (e.g., `gpt-4o`).
    - `TOOL_MODEL_ID`: Model for tool usage (e.g., `qwen2.5`).
    - `JINA_API_KEY`: (Optional) Unified Jina API key for both web search (s.jina.ai) and content extraction (r.jina.ai).
 
-### Running AlphaEar
+### Running DeepEar
 
 #### Option 1: Start the Dashboard (Recommended)
 Launch the modern web interface to monitor and control the agents visually:
@@ -141,7 +141,7 @@ Artifacts will be saved in the `reports/` directory.
 
 ## 🏗 Architecture
 
-AlphaEar follows a layered architecture to decouple tools, agents, and workflow logic.
+DeepEar follows a layered architecture to decouple tools, agents, and workflow logic.
 
 ```mermaid
 graph TD
@@ -191,7 +191,7 @@ graph TD
 ---
 
 ## 🧠 News-Aware Kronos Model
-One of the core innovations in AlphaEar is the integration of a **few-shot news-projection layer** into the Kronos foundation model. This allows the system to not just predict based on historical prices, but to understand the quantitative impact of news events.
+One of the core innovations in DeepEar is the integration of a **few-shot news-projection layer** into the Kronos foundation model. This allows the system to not just predict based on historical prices, but to understand the quantitative impact of news events.
 
 <div align="center">
   <img src="assets/news_bias.png" alt="News Bias Injection Mechanism" width="600">
@@ -208,7 +208,7 @@ One of the core innovations in AlphaEar is the integration of a **few-shot news-
 
 ### Project Structure (Key Directories)
 ```
-AlphaEar/
+DeepEar/
 ├── config/             # Configuration profiles
 ├── docs/               # Documentation & Guides
 ├── reports/            # Generated reports
@@ -289,13 +289,13 @@ Special thanks to the following projects and communities for their inspiration a
 If you find this project useful in your research or applications, please consider citing it:
 
 ```bibtex
-@misc{alpha_ear_2026,
+@misc{deep_ear_2026,
   author = {Runke Ruan},
-  title = {AlphaEar: An Extensible Framework for Financial Signal Extraction and News-Aware Forecasting},
+  title = {DeepEar: An Extensible Framework for Financial Signal Extraction and News-Aware Forecasting},
   year = {2026},
   publisher = {GitHub},
   journal = {GitHub Repository},
-  howpublished = {\url{https://github.com/rkiding/AlphaEar}}
+  howpublished = {\url{https://github.com/rkiding/DeepEar}}
 }
 ```
 

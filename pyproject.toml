@@ -1,7 +1,7 @@
 [project]
-name = "AlphaEar"
+name = "DeepEar"
 version = "0.1.0"
-description = "Add your description here"
+description = "An extensible, open-source framework for extracting financial signals from news and social media."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [

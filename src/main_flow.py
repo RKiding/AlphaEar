@@ -21,7 +21,7 @@ from utils.md_to_html import save_report_as_html
 
 class SignalFluxWorkflow:
     """
-    AlphaEar 主工作流
+    DeepEar 主工作流
     
     流程:
     1. TrendAgent -> 扫描热点
@@ -55,7 +55,7 @@ class SignalFluxWorkflow:
         # 用于筛选的轻量 Agent（不带工具），使用推理模型
         self.filter_agent = Agent(model=self.reasoning_model, markdown=False, debug_mode=True)
         
-        logger.info(f"🚀 AlphaEar Workflow initialized with Dual-Model Routing (ISQ Template: {self.isq_template_id})")
+        logger.info(f"🚀 DeepEar Workflow initialized with Dual-Model Routing (ISQ Template: {self.isq_template_id})")
     
     def _llm_filter_signals(self, news_list: List[Dict], depth: Union[int, str], query: Optional[str] = None) -> List[Dict]:
         """使用 LLM 智能筛选高价值信号
@@ -754,7 +754,7 @@ if __name__ == "__main__":
     import sys
     import argparse
     
-    parser = argparse.ArgumentParser(description="AlphaEar Workflow - Investment Signal Analysis")
+    parser = argparse.ArgumentParser(description="DeepEar Workflow - Investment Signal Analysis")
     parser.add_argument("--template", type=str, default="default_isq_v1", 
                         help="ISQ template ID (default: default_isq_v1)")
     parser.add_argument("--sources", type=str, default="all", 

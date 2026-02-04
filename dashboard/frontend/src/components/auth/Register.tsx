@@ -53,7 +53,7 @@ export function Register() {
         <div className="auth-container">
             <div className="auth-card">
                 <div className="auth-title">Create Account</div>
-                <div className="auth-subtitle">Join AlphaEar with an invitation code</div>
+                <div className="auth-subtitle">Join DeepEar with an invitation code</div>
 
                 {error && <div className="error-message">{error}</div>}
                 {success && <div className="error-message" style={{ background: 'var(--success-bg)', color: 'var(--success)', borderColor: 'var(--success)' }}>Registration Successful! Redirecting...</div>}
