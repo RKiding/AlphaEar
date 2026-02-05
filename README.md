@@ -11,7 +11,7 @@
   <img src="assets/logo.svg" alt="DeepEar Logo" width="200">
   
   <p>
-    An extensible, open-source framework for extracting financial signals from news and social media.
+    An open-source framework for Deep Research and Financial Signal Tracking.
   </p>
 
   <!-- Badges -->
@@ -32,7 +32,6 @@ Click the preview below to see some generated sample reports:
 ## 📖 Table of Contents
 - [When to Use](#-when-to-use)
 - [Features](#-features)
-- [Example Output](#-example-output)
 - [Quick Start](#-quick-start)
 - [Architecture](#-architecture)
 - [Development Guide](#-development-guide)
@@ -76,7 +75,7 @@ DeepEar is designed for financial analysts, quantitative researchers, and indivi
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/your-username/DeepEar.git
+   git clone https://github.com/RKiding/DeepEar.git
    cd DeepEar
    ```
 
@@ -114,6 +113,11 @@ npm run build
 uv run python -m dashboard.server
 ```
 Open `http://localhost:8765` in your browser.
+
+<div align="center">
+  <img src="assets/dashboard_screenshot.png" alt="DeepEar Dashboard" width="800" style="border-radius: 10px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);">
+  <p><i>Real-time Agent Workflow Monitoring Dashboard</i></p>
+</div>
 
 > **Note**: For first-time access, you need to register an account. Use the default invitation code `DEEP-EAR-ADMIN` to get started. You can generate more invitation codes using `uv run scripts/generate_invitation.py`.
 

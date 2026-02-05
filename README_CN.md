@@ -11,7 +11,7 @@
   <img src="assets/logo.svg" alt="DeepEar Logo" width="200">
   
   <p>
-    一个可扩展的开源框架，用于从新闻和社交媒体中提取金融信号。
+    一个用于深度研究与金融信号追踪的开源框架。
   </p>
 
   <!-- Badges -->
@@ -33,7 +33,6 @@
 ## 📖 目录
 - [适用场景](#-适用场景)
 - [核心特性](#-核心特性)
-- [演示报告](#-演示报告)
 - [快速开始](#-快速开始)
 - [系统架构](#-系统架构)
 - [开发指南](#-开发指南)
@@ -77,7 +76,7 @@ DeepEar 专为金融分析师、量化研究员和个人投资者设计，旨在
 
 1.  **克隆仓库**
     ```bash
-    git clone https://github.com/your-username/DeepEar.git
+    git clone https://github.com/RKiding/DeepEar.git
     cd DeepEar
     ```
 
@@ -115,6 +114,11 @@ npm run build
 uv run python -m dashboard.server
 ```
 在浏览器中打开 `http://localhost:8765`。
+
+<div align="center">
+  <img src="assets/dashboard_screenshot.png" alt="DeepEar Dashboard" width="800" style="border-radius: 10px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);">
+  <p><i>实时智能体工作流监控仪表盘</i></p>
+</div>
 
 > **提示**：首次访问需要注册账号。可以使用默认邀请码 `DEEP-EAR-ADMIN` 进行注册。如需生成更多邀请码，请运行 `uv run scripts/generate_invitation.py`。
 
