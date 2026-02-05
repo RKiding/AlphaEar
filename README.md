@@ -42,6 +42,7 @@
 - [When to Use](#-when-to-use)
 - [Features](#-features)
 - [Quick Start](#-quick-start)
+- [Agent Skill Integration](#option-3-use-as-an-ai-agent-skill)
 - [Architecture](#-architecture)
 - [Development Guide](#-development-guide)
 - [Roadmap](#-roadmap)
@@ -64,6 +65,7 @@ DeepEar is designed for financial analysts, quantitative researchers, and indivi
 ## ✨ Features
 
 - **Multi-Agent Collaboration**: Specialized agents for Trend Spotting, Financial Analysis, and Report Writing working in concert.
+- **Agent Skill Ready**: plug-and-play skill for AI agents (Antigravity, OpenCode), turning any chat assistant into a financial researcher.
 - **Interactive Fintech Dashboard**: A modern React-based UI for real-time monitoring of agent workflows, logs, and structured results.
 - **Logic Evolution Tracking**: Active tracking of how investment theses evolve as new market news and price data arrive.
 - **Signal-Based Comparison**: Deep side-by-side analysis of signal changes, drift in sentiment, and logic updates between different runs.
