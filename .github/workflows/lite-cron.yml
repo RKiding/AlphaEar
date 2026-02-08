@@ -2,7 +2,7 @@ name: DeepEar Lite Cron
 
 on:
   schedule:
-    - cron: '0 */4 * * *'
+    - cron: '30 */1 * * *'
   workflow_dispatch: {}
 
 jobs:
