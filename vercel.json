@@ -2,9 +2,10 @@
   "framework": "vite",
   "buildCommand": "cd dashboard/frontend && npm install && npm run build",
   "outputDirectory": "dashboard/frontend/dist",
-  "routes": [
-    { "src": "^/$", "dest": "/lite" },
-    { "handle": "filesystem" },
-    { "src": "/(.*)", "dest": "/index.html" }
+  "redirects": [
+    { "source": "/", "destination": "/lite", "permanent": false }
+  ],
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
