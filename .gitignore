@@ -12,7 +12,7 @@ wheels/
 .env
 
 # data and output
-data/
+data/*
 !data/lite_stock.db
 src/tests
 reports/
