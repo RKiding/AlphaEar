@@ -5,9 +5,109 @@ import yfinance as yf
 import pandas as pd
 import re
 import sqlite3
+import requests as _requests
 from requests.exceptions import RequestException
 from loguru import logger
 from utils.database_manager import DatabaseManager
+
+
+class EastMoneyDirect:
+    """东方财富 HTTP 直接调用 —— 作为 akshare 的零依赖降级方案。
+    
+    仅使用 requests，无需 API Key，国内网络直连。
+    """
+    
+    KLINE_URL = "https://push2his.eastmoney.com/api/qt/stock/kline/get"
+    LIST_URL = "https://push2.eastmoney.com/api/qt/clist/get"
+    UT = "fa5fd1943c7b386f172d6893dbfba10b"
+
+    @staticmethod
+    def _secid(ticker: str) -> str:
+        """将纯数字 ticker 转为东方财富 secid 格式。
+        
+        A股: 6开头 -> 1.{ticker}(上交所) | 其他 -> 0.{ticker}(深交所)
+        港股: 5位数字 -> 116.{ticker}
+        """
+        if len(ticker) == 5:
+            return f"116.{ticker}"
+        if ticker.startswith(('6', '9')):
+            return f"1.{ticker}"
+        return f"0.{ticker}"
+
+    @classmethod
+    def fetch_kline(cls, ticker: str, start_date: str, end_date: str) -> pd.DataFrame:
+        """获取 K 线数据，返回与 akshare 对齐的 DataFrame。
+        
+        Args:
+            ticker: 纯数字股票代码
+            start_date: YYYYMMDD
+            end_date: YYYYMMDD
+        """
+        params = {
+            'secid': cls._secid(ticker),
+            'fields1': 'f1,f2,f3,f4,f5,f6',
+            'fields2': 'f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61',
+            'klt': '101',   # 日K
+            'fqt': '1',     # 前复权
+            'beg': start_date,
+            'end': end_date,
+            'lmt': '1000',
+            'ut': cls.UT,
+        }
+        resp = _requests.get(cls.KLINE_URL, params=params, timeout=10)
+        resp.raise_for_status()
+        data = resp.json().get('data')
+        if not data or not data.get('klines'):
+            return pd.DataFrame()
+        
+        # kline 格式: "日期,开盘,收盘,最高,最低,成交量,成交额,振幅,涨跌幅,涨跌额,换手率"
+        rows = [k.split(',') for k in data['klines']]
+        df = pd.DataFrame(rows, columns=[
+            '日期', '开盘', '收盘', '最高', '最低', '成交量',
+            '成交额', '振幅', '涨跌幅', '涨跌额', '换手率'
+        ])
+        # 转为数值类型
+        for col in ['开盘', '收盘', '最高', '最低', '成交量', '涨跌幅']:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+        
+        return df
+
+    @classmethod
+    def fetch_stock_list(cls, market: str = 'a') -> pd.DataFrame:
+        """获取股票列表。
+        
+        Args:
+            market: 'a' for A股, 'hk' for 港股
+        """
+        if market == 'a':
+            fs = 'm:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23'
+        else:
+            fs = 'm:128+t:3,m:128+t:4,m:128+t:1,m:128+t:2'
+        
+        all_items = []
+        page = 1
+        while True:
+            params = {
+                'pn': str(page), 'pz': '5000', 'po': '1', 'np': '1',
+                'fltt': '2', 'invt': '2', 'fid': 'f12',
+                'fs': fs, 'fields': 'f12,f14',
+                'ut': cls.UT,
+            }
+            resp = _requests.get(cls.LIST_URL, params=params, timeout=15)
+            resp.raise_for_status()
+            data = resp.json().get('data', {})
+            diff = data.get('diff', [])
+            if not diff:
+                break
+            for item in diff:
+                all_items.append({'code': item.get('f12', ''), 'name': item.get('f14', '')})
+            total = data.get('total', 0)
+            if page * 5000 >= total:
+                break
+            page += 1
+        
+        return pd.DataFrame(all_items)
+
 
 class StockTools:
     """金融分析股票工具 - 结合高性能数据库缓存与增量更新"""
@@ -35,25 +135,39 @@ class StockTools:
             logger.info(f"ℹ️ Stock list already cached ({count} stocks)")
             return
         
-        logger.info("📡 Updating A-share and HK-share stock list from akshare...")
+        logger.info("📡 Updating A-share and HK-share stock list...")
+        
+        df_combined = None
+        
+        # === 主路径: akshare ===
         try:
-            # A-share
             df_a = ak.stock_zh_a_spot_em()
             df_a = df_a[['代码', '名称']].copy()
             df_a.columns = ['code', 'name']
             
-            # HK-share
             df_hk = ak.stock_hk_spot_em()
             df_hk = df_hk[['代码', '名称']].copy()
             df_hk.columns = ['code', 'name']
             
-            # Combine
             df_combined = pd.concat([df_a, df_hk], ignore_index=True)
-            
-            self.db.save_stock_list(df_combined)
-            logger.info(f"✅ Cached {len(df_combined)} stocks (A-share + HK) to database.")
+            logger.info(f"✅ akshare: fetched {len(df_combined)} stocks.")
         except Exception as e:
-            logger.error(f"❌ Failed to sync stock list: {e}")
+            logger.warning(f"⚠️ akshare stock list failed: {e}. Trying EastMoney direct...")
+        
+        # === 降级路径: 东方财富直接 HTTP ===
+        if df_combined is None or df_combined.empty:
+            try:
+                df_a = EastMoneyDirect.fetch_stock_list('a')
+                df_hk = EastMoneyDirect.fetch_stock_list('hk')
+                df_combined = pd.concat([df_a, df_hk], ignore_index=True)
+                logger.info(f"✅ EastMoney direct: fetched {len(df_combined)} stocks.")
+            except Exception as e2:
+                logger.error(f"❌ All stock list sources failed. akshare + EastMoney: {e2}")
+                return
+        
+        if df_combined is not None and not df_combined.empty:
+            self.db.save_stock_list(df_combined)
+            logger.info(f"✅ Cached {len(df_combined)} stocks to database.")
 
 
     def search_ticker(self, query: str, limit: int = 5) -> List[Dict]:
@@ -147,51 +261,64 @@ class StockTools:
                 
                 df_remote = None
                 
-                def fetch_data():
+                def fetch_data_akshare():
+                    """主路径: akshare"""
                     if is_us_stock:
-                        yf_ticker = yf.Ticker(clean_ticker)
-                        end_dt = datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1)
-                        df_us = yf_ticker.history(start=start_date, end=end_dt.strftime("%Y-%m-%d"))
-                        if df_us.empty:
-                            return pd.DataFrame()
-                        
-                        df_us = df_us.reset_index()
-                        date_col = 'Date' if 'Date' in df_us.columns else df_us.columns[0]
-                        df_us = df_us.rename(columns={
-                            'Open': 'open', 'Close': 'close',
-                            'High': 'high', 'Low': 'low', 'Volume': 'volume'
-                        })
-                        
-                        if pd.api.types.is_datetime64_any_dtype(df_us[date_col]):
-                            df_us['date'] = df_us[date_col].dt.strftime('%Y-%m-%d')
-                        else:
-                            df_us['date'] = pd.to_datetime(df_us[date_col]).dt.strftime('%Y-%m-%d')
-                            
-                        df_us['change_pct'] = df_us['close'].pct_change() * 100
-                        df_us['change_pct'] = df_us['change_pct'].fillna(0)
-                        
-                        return df_us[['date', 'open', 'close', 'high', 'low', 'volume', 'change_pct']]
+                        return _fetch_data_yfinance()
+                    if len(clean_ticker) == 5:
+                        return ak.stock_hk_hist(
+                            symbol=clean_ticker, period="daily",
+                            start_date=s_fmt, end_date=e_fmt,
+                            adjust="qfq"
+                        )
                     else:
-                        if len(clean_ticker) == 5:
-                            # HK Stock
-                            return ak.stock_hk_hist(
-                                symbol=clean_ticker, period="daily",
-                                start_date=s_fmt, end_date=e_fmt,
-                                adjust="qfq"
-                            )
-                        else:
-                            # A-share Stock
-                            return ak.stock_zh_a_hist(
-                                symbol=clean_ticker, period="daily",
-                                start_date=s_fmt, end_date=e_fmt,
-                                adjust="qfq"
-                            )
+                        return ak.stock_zh_a_hist(
+                            symbol=clean_ticker, period="daily",
+                            start_date=s_fmt, end_date=e_fmt,
+                            adjust="qfq"
+                        )
 
+                def _fetch_data_yfinance():
+                    """美股路径: yfinance"""
+                    yf_ticker = yf.Ticker(clean_ticker)
+                    end_dt = datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1)
+                    df_us = yf_ticker.history(start=start_date, end=end_dt.strftime("%Y-%m-%d"))
+                    if df_us.empty:
+                        return pd.DataFrame()
+                    
+                    df_us = df_us.reset_index()
+                    date_col = 'Date' if 'Date' in df_us.columns else df_us.columns[0]
+                    df_us = df_us.rename(columns={
+                        'Open': 'open', 'Close': 'close',
+                        'High': 'high', 'Low': 'low', 'Volume': 'volume'
+                    })
+                    
+                    if pd.api.types.is_datetime64_any_dtype(df_us[date_col]):
+                        df_us['date'] = df_us[date_col].dt.strftime('%Y-%m-%d')
+                    else:
+                        df_us['date'] = pd.to_datetime(df_us[date_col]).dt.strftime('%Y-%m-%d')
+                        
+                    df_us['change_pct'] = df_us['close'].pct_change() * 100
+                    df_us['change_pct'] = df_us['change_pct'].fillna(0)
+                    
+                    return df_us[['date', 'open', 'close', 'high', 'low', 'volume', 'change_pct']]
+
+                def fetch_data_eastmoney():
+                    """降级路径: 东方财富直接 HTTP"""
+                    logger.info(f"📡 Trying EastMoney direct for {clean_ticker}...")
+                    return EastMoneyDirect.fetch_kline(clean_ticker, s_fmt, e_fmt)
+
+                # === 多源尝试: akshare → 东方财富直接 ===
                 try:
-                    df_remote = fetch_data()
-                except (RequestException, Exception) as e:
-                    # DeepEar script usually handles proxies differently but we wrap it gracefully
-                    raise e
+                    df_remote = fetch_data_akshare()
+                except Exception as e:
+                    logger.warning(f"⚠️ akshare failed for {clean_ticker}: {e}")
+                    if not is_us_stock:
+                        try:
+                            df_remote = fetch_data_eastmoney()
+                        except Exception as e2:
+                            logger.warning(f"⚠️ EastMoney direct also failed for {clean_ticker}: {e2}")
+                            raise e  # 抛出原始错误
                 
                 if df_remote is not None and not df_remote.empty:
                     if not is_us_stock:
