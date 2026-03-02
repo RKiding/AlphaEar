@@ -5,107 +5,127 @@ import yfinance as yf
 import pandas as pd
 import re
 import sqlite3
+import json
 import requests as _requests
 from requests.exceptions import RequestException
 from loguru import logger
 from utils.database_manager import DatabaseManager
 
 
-class EastMoneyDirect:
-    """东方财富 HTTP 直接调用 —— 作为 akshare 的零依赖降级方案。
+class StockAPIDirect:
+    """金融数据直接 HTTP 调用 —— 作为 akshare 的多层级降级方案。
     
-    仅使用 requests，无需 API Key，国内网络直连。
+    包含：
+    1. EastMoney (东方财富)
+    2. Tencent (腾讯财经)
+    
+    均使用 requests 直连，无需 API Key，增加浏览器 Headers 以应对 GitHub Actions 等环境的屏蔽。
     """
     
-    KLINE_URL = "https://push2his.eastmoney.com/api/qt/stock/kline/get"
-    LIST_URL = "https://push2.eastmoney.com/api/qt/clist/get"
-    UT = "fa5fd1943c7b386f172d6893dbfba10b"
+    EM_KLINE_URL = "https://push2his.eastmoney.com/api/qt/stock/kline/get"
+    EM_LIST_URL = "https://push2.eastmoney.com/api/qt/clist/get"
+    EM_UT = "fa5fd1943c7b386f172d6893dbfba10b"
+    
+    TENCENT_KLINE_URL = "http://web.ifzq.gtimg.cn/appstock/app/fqkline/get"
+    
+    DEFAULT_HEADERS = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "*/*",
+        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+        "Referer": "https://quote.eastmoney.com/center/gridlist.html"
+    }
 
     @staticmethod
-    def _secid(ticker: str) -> str:
-        """将纯数字 ticker 转为东方财富 secid 格式。
-        
-        A股: 6开头 -> 1.{ticker}(上交所) | 其他 -> 0.{ticker}(深交所)
-        港股: 5位数字 -> 116.{ticker}
-        """
+    def _get_em_secid(ticker: str) -> str:
         if len(ticker) == 5:
             return f"116.{ticker}"
         if ticker.startswith(('6', '9')):
             return f"1.{ticker}"
         return f"0.{ticker}"
+    
+    @staticmethod
+    def _get_tencent_symbol(ticker: str) -> str:
+        if len(ticker) == 5:
+            return f"hk{ticker}"
+        if ticker.startswith(('6', '9')):
+            return f"sh{ticker}"
+        return f"sz{ticker}"
 
     @classmethod
-    def fetch_kline(cls, ticker: str, start_date: str, end_date: str) -> pd.DataFrame:
-        """获取 K 线数据，返回与 akshare 对齐的 DataFrame。
-        
-        Args:
-            ticker: 纯数字股票代码
-            start_date: YYYYMMDD
-            end_date: YYYYMMDD
-        """
+    def fetch_kline_eastmoney(cls, ticker: str, start_date: str, end_date: str) -> pd.DataFrame:
+        """从东方财富获取 K 线数据 (YYYYMMDD)"""
         params = {
-            'secid': cls._secid(ticker),
+            'secid': cls._get_em_secid(ticker),
             'fields1': 'f1,f2,f3,f4,f5,f6',
             'fields2': 'f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61',
-            'klt': '101',   # 日K
-            'fqt': '1',     # 前复权
-            'beg': start_date,
-            'end': end_date,
-            'lmt': '1000',
-            'ut': cls.UT,
+            'klt': '101', 'fqt': '1', 'beg': start_date, 'end': end_date,
+            'lmt': '1000', 'ut': cls.EM_UT,
         }
-        resp = _requests.get(cls.KLINE_URL, params=params, timeout=10)
+        resp = _requests.get(cls.EM_KLINE_URL, params=params, headers=cls.DEFAULT_HEADERS, timeout=12)
         resp.raise_for_status()
         data = resp.json().get('data')
         if not data or not data.get('klines'):
             return pd.DataFrame()
         
-        # kline 格式: "日期,开盘,收盘,最高,最低,成交量,成交额,振幅,涨跌幅,涨跌额,换手率"
         rows = [k.split(',') for k in data['klines']]
-        df = pd.DataFrame(rows, columns=[
-            '日期', '开盘', '收盘', '最高', '最低', '成交量',
-            '成交额', '振幅', '涨跌幅', '涨跌额', '换手率'
-        ])
-        # 转为数值类型
+        df = pd.DataFrame(rows, columns=['日期', '开盘', '收盘', '最高', '最低', '成交量', '成交额', '振幅', '涨跌幅', '涨跌额', '换手率'])
         for col in ['开盘', '收盘', '最高', '最低', '成交量', '涨跌幅']:
             df[col] = pd.to_numeric(df[col], errors='coerce')
+        return df
+
+    @classmethod
+    def fetch_kline_tencent(cls, ticker: str, start_date: str, end_date: str) -> pd.DataFrame:
+        """从腾讯财经获取 K 线数据 (YYYY-MM-DD)"""
+        symbol = cls._get_tencent_symbol(ticker)
+        params = {
+            '_var': 'kline_day',
+            'param': f"{symbol},day,{start_date},{end_date},640,qfq"
+        }
+        resp = _requests.get(cls.TENCENT_KLINE_URL, params=params, headers=cls.DEFAULT_HEADERS, timeout=12)
+        resp.raise_for_status()
+        
+        content = resp.text.replace('kline_day=', '')
+        data = json.loads(content)
+        
+        symbol_data = data.get('data', {}).get(symbol, {})
+        klines = symbol_data.get('qfqday', symbol_data.get('day', []))
+        
+        if not klines:
+            return pd.DataFrame()
+        
+        # 腾讯 K 线格式: [日期, 开盘, 收盘, 最高, 最低, 成交量, ...]
+        df = pd.DataFrame(klines)
+        df = df.iloc[:, :6]
+        df.columns = ['日期', '开盘', '收盘', '最高', '最低', '成交量']
+        
+        # 补全 change_pct (腾讯不直接提供历史涨跌幅)
+        df['收盘'] = pd.to_numeric(df['收盘'])
+        df['涨跌幅'] = df['收盘'].pct_change() * 100
+        df['涨跌幅'] = df['涨跌幅'].fillna(0)
         
         return df
 
     @classmethod
-    def fetch_stock_list(cls, market: str = 'a') -> pd.DataFrame:
-        """获取股票列表。
-        
-        Args:
-            market: 'a' for A股, 'hk' for 港股
-        """
-        if market == 'a':
-            fs = 'm:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23'
-        else:
-            fs = 'm:128+t:3,m:128+t:4,m:128+t:1,m:128+t:2'
-        
+    def fetch_stock_list_em(cls, market: str = 'a') -> pd.DataFrame:
+        """从东方财富获取股票列表"""
+        fs = 'm:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23' if market == 'a' else 'm:128+t:3,m:128+t:4,m:128+t:1,m:128+t:2'
         all_items = []
         page = 1
         while True:
             params = {
                 'pn': str(page), 'pz': '5000', 'po': '1', 'np': '1',
                 'fltt': '2', 'invt': '2', 'fid': 'f12',
-                'fs': fs, 'fields': 'f12,f14',
-                'ut': cls.UT,
+                'fs': fs, 'fields': 'f12,f14', 'ut': cls.EM_UT,
             }
-            resp = _requests.get(cls.LIST_URL, params=params, timeout=15)
+            resp = _requests.get(cls.EM_LIST_URL, params=params, headers=cls.DEFAULT_HEADERS, timeout=15)
             resp.raise_for_status()
             data = resp.json().get('data', {})
             diff = data.get('diff', [])
-            if not diff:
-                break
+            if not diff: break
             for item in diff:
                 all_items.append({'code': item.get('f12', ''), 'name': item.get('f14', '')})
-            total = data.get('total', 0)
-            if page * 5000 >= total:
-                break
+            if page * 5000 >= data.get('total', 0): break
             page += 1
-        
         return pd.DataFrame(all_items)
 
 
@@ -154,11 +174,10 @@ class StockTools:
         except Exception as e:
             logger.warning(f"⚠️ akshare stock list failed: {e}. Trying EastMoney direct...")
         
-        # === 降级路径: 东方财富直接 HTTP ===
         if df_combined is None or df_combined.empty:
             try:
-                df_a = EastMoneyDirect.fetch_stock_list('a')
-                df_hk = EastMoneyDirect.fetch_stock_list('hk')
+                df_a = StockAPIDirect.fetch_stock_list_em('a')
+                df_hk = StockAPIDirect.fetch_stock_list_em('hk')
                 df_combined = pd.concat([df_a, df_hk], ignore_index=True)
                 logger.info(f"✅ EastMoney direct: fetched {len(df_combined)} stocks.")
             except Exception as e2:
@@ -304,21 +323,35 @@ class StockTools:
                     return df_us[['date', 'open', 'close', 'high', 'low', 'volume', 'change_pct']]
 
                 def fetch_data_eastmoney():
-                    """降级路径: 东方财富直接 HTTP"""
+                    """降级路径 1: 东方财富直接 HTTP"""
                     logger.info(f"📡 Trying EastMoney direct for {clean_ticker}...")
-                    return EastMoneyDirect.fetch_kline(clean_ticker, s_fmt, e_fmt)
+                    return StockAPIDirect.fetch_kline_eastmoney(clean_ticker, s_fmt, e_fmt)
+                
+                def fetch_data_tencent():
+                    """降级路径 2: 腾讯财经直接 HTTP"""
+                    logger.info(f"📡 Trying Tencent direct for {clean_ticker}...")
+                    # 腾讯日期格式支持 YYYY-MM-DD
+                    return StockAPIDirect.fetch_kline_tencent(clean_ticker, start_date, end_date)
 
-                # === 多源尝试: akshare → 东方财富直接 ===
+                # === 多源尝试策略 ( akshare -> EastMoney -> Tencent ) ===
                 try:
                     df_remote = fetch_data_akshare()
                 except Exception as e:
                     logger.warning(f"⚠️ akshare failed for {clean_ticker}: {e}")
-                    if not is_us_stock:
+                    if is_us_stock: raise e
+                    
+                    # 尝试东方财富
+                    try:
+                        df_remote = fetch_data_eastmoney()
+                    except Exception as e_em:
+                        logger.warning(f"⚠️ EastMoney direct also failed for {clean_ticker}: {e_em}")
+                        
+                        # 尝试腾讯财经 (最后一道防线)
                         try:
-                            df_remote = fetch_data_eastmoney()
-                        except Exception as e2:
-                            logger.warning(f"⚠️ EastMoney direct also failed for {clean_ticker}: {e2}")
-                            raise e  # 抛出原始错误
+                            df_remote = fetch_data_tencent()
+                        except Exception as e_tx:
+                            logger.error(f"❌ All sources (akshare/EM/Tencent) failed for {clean_ticker}")
+                            raise e  # 抛出最初的错误
                 
                 if df_remote is not None and not df_remote.empty:
                     if not is_us_stock:
